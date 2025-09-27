@@ -4,9 +4,8 @@ import { Box } from "@mui/material";
 import GlobalSkeleton from "@/shared/components/skeleton/GlobalSkeleton";
 
 /**
- * DataGrid générique avec 2 modes :
- * - mode="default" → cache + préchargement de 2 pages
- * - mode="strict" → chaque page/tri est rechargé directement depuis le backend
+ * DataGrid avec pagination et tri côté serveur
+ * Le tri s'applique sur TOUTES les données côté backend
  */
 export default function PaginatedDataGrid({
   columns,
@@ -14,15 +13,15 @@ export default function PaginatedDataGrid({
   filterModel,
   onFilterChange,
   onRowClick,
-  pageSizeOptions = [20, 50, 100],
-  initialPageSize = 20,
+  pageSizeOptions = [20, 50, 100, 200, 500],
+  initialPageSize = 100,
   getRowId = (row) => row.id,
   getRowClassName,
   resetKey,
-  sortModel,
-  sortingMode,
+  sortModel = [],
+  sortingMode = "server",
   onSortModelChange,
-  mode = "default",
+  mode = "server", // Par défaut, mode serveur pour CompareTarif
   loading: externalLoading,
 }) {
   const [rows, setRows] = useState([]);
@@ -31,174 +30,181 @@ export default function PaginatedDataGrid({
   const [rowCount, setRowCount] = useState(0);
   const [loading, setLoading] = useState(false);
 
-  // Cache pour mode "default"
-  const cache = useRef({});
-  const loadingPages = useRef(new Set());
+  // Pour éviter les appels multiples
+  const lastRequestId = useRef(0);
+  const activeRequest = useRef(null);
 
-  // Reset si resetKey change
+  // Reset complet si resetKey change
   useEffect(() => {
-    cache.current = {};
-    loadingPages.current.clear(); // ✅ Clear loading pages set
     setRows([]);
     setPage(0);
-    setRowCount(0); // ✅ Reset row count
+    setRowCount(0);
+    setLoading(false);
+    lastRequestId.current = 0;
+    if (activeRequest.current) {
+      activeRequest.current = null;
+    }
   }, [resetKey]);
 
-  // ==== MODE STRICT (CompareTarif) ====
-  const loadStrict = useCallback(async () => {
-    if (loading) return; // ✅ Éviter les appels multiples
+  // Fonction de chargement des données
+  const loadData = useCallback(async () => {
+    // Générer un ID unique pour cette requête
+    const requestId = ++lastRequestId.current;
     
+    // Annuler si une requête est déjà en cours
+    if (activeRequest.current) {
+      return;
+    }
+    
+    activeRequest.current = requestId;
     setLoading(true);
-    try {
-      const res = await fetchRows(page, pageSize, filterModel, sortModel);
-      setRows(res.rows || []);
-      setRowCount(res.total || 0);
-    } catch (e) {
-      console.error("❌ Erreur chargement strict page", page, e);
-      setRows([]); // ✅ Reset en cas d'erreur
-      setRowCount(0);
-    } finally {
-      setLoading(false);
-    }
-  }, [fetchRows, page, pageSize, filterModel, sortModel]);
-
-  // ==== MODE DEFAULT (avec cache / préchargement 2 pages) ====
-  const loadDefault = useCallback(async (basePage) => {
-    if (loadingPages.current.has(basePage)) return;
     
-    loadingPages.current.add(basePage);
-
     try {
-      const pagesToLoad = [basePage, basePage + 1];
-      const missing = pagesToLoad.filter((p) => !cache.current[p]);
+      // Appel au backend avec les paramètres de tri et pagination
+      const result = await fetchRows(page, pageSize, filterModel, sortModel);
       
-      if (missing.length === 0) {
-        loadingPages.current.delete(basePage);
-        return;
+      // Vérifier que cette requête est toujours la plus récente
+      if (requestId === lastRequestId.current) {
+        // Mise à jour des données
+        setRows(result.rows || []);
+        setRowCount(result.total || 0);
       }
-
-      if (loading) {
-        loadingPages.current.delete(basePage);
-        return;
+    } catch (error) {
+      console.error("Erreur chargement données:", error);
+      if (requestId === lastRequestId.current) {
+        setRows([]);
+        setRowCount(0);
       }
-
-      setLoading(true);
-      
-      const results = await Promise.all(
-        missing.map((p) => fetchRows(p, pageSize, filterModel, sortModel))
-      );
-      
-      results.forEach((res, i) => {
-        if (!res) return;
-        const p = missing[i];
-        cache.current[p] = res.rows || [];
-        
-        if (i === 0) { // ✅ Set total only once
-          setRowCount(res.total || 0);
-        }
-        
-        setRows((prev) => {
-          const updated = [...prev];
-          (res.rows || []).forEach((r, rowIndex) => {
-            const globalIndex = p * pageSize + rowIndex;
-            updated[globalIndex] = r;
-          });
-          return updated;
-        });
-      });
-    } catch (e) {
-      console.error("❌ Erreur chargement bloc pages", basePage, e);
     } finally {
-      loadingPages.current.delete(basePage);
-      setLoading(false);
+      if (requestId === lastRequestId.current) {
+        setLoading(false);
+        activeRequest.current = null;
+      }
     }
-  }, [fetchRows, pageSize, filterModel, sortModel]);
+  }, [page, pageSize, filterModel, sortModel, fetchRows]);
 
-  // ✅ Séparer les useEffect pour éviter les boucles infinies
+  // Charger les données quand les paramètres changent
   useEffect(() => {
-    if (mode === "strict") {
-      loadStrict();
-    }
-  }, [mode, loadStrict]);
+    // Petit délai pour éviter les appels trop rapides lors des changements multiples
+    const timer = setTimeout(() => {
+      loadData();
+    }, 100);
 
-  useEffect(() => {
-    if (mode === "default") {
-      const basePage = Math.floor(page / 2) * 2;
-      loadDefault(basePage);
-    }
-  }, [mode, page, loadDefault]);
+    return () => clearTimeout(timer);
+  }, [loadData]);
 
-  // ✅ Reset cache quand les filtres/tri changent en mode default
-  useEffect(() => {
-    if (mode === "default") {
-      cache.current = {};
-      loadingPages.current.clear();
-      setRows([]);
-      setPage(0);
-      setRowCount(0);
+  // Gestion du changement de page/taille
+  const handlePaginationModelChange = useCallback(({ page: newPage, pageSize: newPageSize }) => {
+    let hasChanged = false;
+    
+    if (newPageSize !== pageSize) {
+      setPageSize(newPageSize);
+      setPage(0); // Retour à la première page si on change la taille
+      hasChanged = true;
+    } else if (newPage !== page) {
+      setPage(newPage);
+      hasChanged = true;
     }
-  }, [mode, filterModel, sortModel]);
+    
+    // Les données seront rechargées automatiquement via useEffect
+  }, [page, pageSize]);
 
-  const visibleRows = React.useMemo(() => {
-    if (mode === "strict") {
-      return rows;
-    }
-    return rows.slice(page * pageSize, (page + 1) * pageSize);
-  }, [mode, rows, page, pageSize]);
+  // Gestion du changement de tri
+  const handleSortModelChange = useCallback((model) => {
+    // IMPORTANT: Le tri se fait côté serveur
+    // On remet à la page 0 pour voir les premiers résultats triés
+    setPage(0);
+    onSortModelChange?.(model);
+  }, [onSortModelChange]);
+
+  // Gestion du changement de filtre
+  const handleFilterModelChange = useCallback((model) => {
+    setPage(0); // Retour à la première page
+    onFilterChange?.(model);
+  }, [onFilterChange]);
+
+  const isLoading = loading || externalLoading;
 
   return (
-    <Box sx={{ width: "100%" }}>
-      {(loading || externalLoading) && visibleRows.length === 0 ? (
+    <Box sx={{ width: "100%", height: "100%" }}>
+      {isLoading && rows.length === 0 ? (
         <GlobalSkeleton height="60vh" />
       ) : (
         <DataGrid
-          rows={visibleRows}
+          rows={rows}
           columns={columns}
           getRowId={getRowId}
           rowCount={rowCount}
+          
+          // Configuration de la pagination
           pagination
           paginationMode="server"
           pageSizeOptions={pageSizeOptions}
           paginationModel={{ page, pageSize }}
-          onPaginationModelChange={({ page: newPage, pageSize: newPageSize }) => {
-            if (newPage !== page) setPage(newPage);
-            if (newPageSize !== pageSize) {
-              setPageSize(newPageSize);
-              if (mode === "default") {
-                // ✅ Reset cache si taille de page change
-                cache.current = {};
-                setRows([]);
-                setPage(0);
-              }
-            }
-          }}
-          filterModel={filterModel}
-          onFilterModelChange={(model) => {
-            onFilterChange?.(model);
-            setPage(0);
-          }}
+          onPaginationModelChange={handlePaginationModelChange}
+          
+          // Configuration du tri côté serveur
+          sortingMode="server"
           sortModel={sortModel}
-          sortingMode={sortingMode}
-          onSortModelChange={onSortModelChange}
+          onSortModelChange={handleSortModelChange}
+          
+          // Configuration des filtres
+          filterMode="server"
+          filterModel={filterModel}
+          onFilterModelChange={handleFilterModelChange}
+          
+          // Autres configurations
           onRowClick={onRowClick}
-          loading={loading || externalLoading}
+          loading={isLoading}
           density="compact"
           disableRowSelectionOnClick
           hideFooterSelectedRowCount
-          filterMode="server"
-          slots={{ toolbar: GridToolbar }}
+          autoHeight={false}
+          
+          // Toolbar avec recherche rapide
+          slots={{ 
+            toolbar: GridToolbar,
+          }}
           slotProps={{
             toolbar: {
               showQuickFilter: true,
               quickFilterProps: { debounceMs: 500 },
             },
+            pagination: {
+              labelRowsPerPage: "Lignes par page:",
+              labelDisplayedRows: ({ from, to, count }) => {
+                return `${from}–${to} sur ${count !== -1 ? count : `plus de ${to}`}`;
+              },
+            },
           }}
+          
+          // Styles
           sx={{
             border: "1px solid #e0e0e0",
             borderRadius: 1,
             backgroundColor: "white",
+            height: "calc(100vh - 300px)", // Ajuster selon votre layout
+            "& .MuiDataGrid-row": {
+              "&:hover": {
+                backgroundColor: "rgba(0, 0, 0, 0.04)",
+              },
+            },
+            "& .MuiDataGrid-cell": {
+              borderColor: "#f0f0f0",
+            },
+            // Style pour la pagination
+            "& .MuiTablePagination-displayedRows": {
+              fontWeight: 600,
+              color: "#333",
+            },
           }}
+          
           getRowClassName={getRowClassName}
+          
+          // Optimisations performances
+          columnBuffer={5}
+          rowBuffer={10}
+          disableVirtualization={false}
         />
       )}
     </Box>

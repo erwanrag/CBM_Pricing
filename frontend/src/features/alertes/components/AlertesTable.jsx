@@ -65,10 +65,13 @@ export default function AlertesTable({ filters, onInspect, onTotalChange }) {
     { field: "grouping_crn", headerName: "# Groupe Réf. Constructeur", width: 140 },
     {
       field: "px_achat", headerName: "Px Achat (€)", width: 100,
-      renderCell: ({ value }) => (value != null ? formatPrix(value) : "-"),
+      renderCell: ({ value }) => (value != null ? formatPrix(value) : "-")
     },
-    // === Bloc Tarif avec balise sur chaque colonne ===
-    { field: "no_tarif", headerName: headerWithBloc("N°", "Tarif", TARIF_COLOR), width: 60 },
+    // --- Colonnes bloc Tarif ---
+    {
+      field: "no_tarif", headerName: headerWithBloc("Tarif", "Tarif", TARIF_COLOR), width: 70,
+      renderCell: ({ value }) => (!value ? "-" : value)
+    },
     {
       field: "ca_total", headerName: headerWithBloc("CA (€)", "Tarif", TARIF_COLOR), width: 120,
       renderCell: ({ value }) => formatPrix(value)
@@ -78,19 +81,16 @@ export default function AlertesTable({ filters, onInspect, onTotalChange }) {
       renderCell: ({ value }) => formatPrix(value)
     },
     {
-      field: "marge_relative",
-      headerName: headerWithBloc("Marge (%)", "Tarif", TARIF_COLOR),
-      width: 100,
-      sortable: true,
-      renderCell: ({ value }) => <MargeColorBox value={value} />,
+      field: "marge_relative", headerName: headerWithBloc("Marge %", "Tarif", TARIF_COLOR), width: 80,
+      renderCell: ({ value }) => <MargeColorBox value={value * 100} size="small" />
     },
-    // === Bloc Le Mans avec balise sur chaque colonne ===
+    // --- Colonnes bloc Le Mans ---
     {
       field: "ca_LM", headerName: headerWithBloc("CA (€)", "Le Mans", LM_COLOR), width: 120,
       renderCell: ({ value }) => formatPrix(value)
     },
     {
-      field: "qte_LM", headerName: headerWithBloc("Qté", "Le Mans", LM_COLOR), width: 65,
+      field: "qte_LM", headerName: headerWithBloc("Qté", "Le Mans", LM_COLOR), width: 70,
       renderCell: ({ value }) => (!value || value === 0 ? "-" : value)
     },
     {
@@ -142,21 +142,38 @@ export default function AlertesTable({ filters, onInspect, onTotalChange }) {
   ], [navigate, onInspect]);
 
   // Visibilité colonnes (persistée)
-  const [colVisibility, setColVisibility] = useState(() =>
-    Object.fromEntries(allColumns.map(c => [c.field, true]))
-  );
+  const [colVisibility, setColVisibility] = useState(() => {
+    // Charger depuis localStorage si disponible
+    const saved = localStorage.getItem(LOCALSTORAGE_KEY);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error("Erreur chargement visibilité colonnes:", e);
+      }
+    }
+    // Par défaut, toutes les colonnes visibles
+    return Object.fromEntries(allColumns.map(c => [c.field, true]));
+  });
 
+  // Sauvegarder les changements de visibilité
   useEffect(() => {
-    setColVisibility((old = {}) =>
-      Object.fromEntries(allColumns.map(c => [c.field, old[c.field] !== false]))
-    );
-    // eslint-disable-next-line
-  }, [allColumns.length]);
+    localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(colVisibility));
+  }, [colVisibility]);
 
-  // RESET unique pour DataGrid
+  // RESET unique pour DataGrid - NE PAS inclure colVisibility qui change souvent
   const resetKey = useMemo(
-    () => JSON.stringify({ filters, colVisibility }),
-    [filters, colVisibility]
+    () => JSON.stringify({
+      filters: {
+        code_regle: filters.code_regle,
+        cod_pro: filters.cod_pro,
+        no_tarif: filters.no_tarif,
+        ref_crn: filters.ref_crn,
+        grouping_crn: filters.grouping_crn,
+        qualite: filters.qualite
+      }
+    }),
+    [filters.code_regle, filters.cod_pro, filters.no_tarif, filters.ref_crn, filters.grouping_crn, filters.qualite]
   );
 
   // Repérage des premières colonnes visibles de chaque bloc (dynamique)
@@ -171,13 +188,10 @@ export default function AlertesTable({ filters, onInspect, onTotalChange }) {
     });
     return firstVisibleSet;
   }
+  
   const firstVisibleFields = useMemo(
-    () => getBlocFirstVisibleFields(
-      colVisibility || Object.fromEntries(allColumns.map(c => [c.field, true])),
-      allColumns,
-      blocFields
-    ),
-    [colVisibility, allColumns, blocFields]
+    () => getBlocFirstVisibleFields(colVisibility, allColumns, blocFields),
+    [colVisibility, allColumns]
   );
 
   // Récupération des rows (live)
@@ -185,7 +199,7 @@ export default function AlertesTable({ filters, onInspect, onTotalChange }) {
     try {
       const res = await getAlertesSummary({
         ...filters,
-        page,
+        page: page + 1, // Le backend attend page 1-based
         limit,
         sort_by: "marge_relative",
         sort_dir: "desc",
@@ -195,14 +209,20 @@ export default function AlertesTable({ filters, onInspect, onTotalChange }) {
         (row) => row != null && row.cod_pro !== undefined && row.no_tarif !== undefined
       );
 
-      onTotalChange?.(res.total ?? 0);
+      // Notifier le composant parent du total
+      if (onTotalChange) {
+        onTotalChange(res.total ?? 0);
+      }
+
       return {
         rows: validRows,
-        total: res.total,
+        total: res.total || 0,
       };
     } catch (error) {
       console.error("❌ Erreur lors du chargement des alertes :", error);
-      onTotalChange?.(0);
+      if (onTotalChange) {
+        onTotalChange(0);
+      }
       return { rows: [], total: 0 };
     }
   }, [filters, onTotalChange]);
@@ -223,7 +243,8 @@ export default function AlertesTable({ filters, onInspect, onTotalChange }) {
               pl: 1,
               textAlign: "right",
               width: "100%",
-              display: "flex", alignItems: "center"
+              display: "flex", 
+              alignItems: "center"
             }}>
               {col.renderCell ? col.renderCell(params) : params.value ?? "-"}
             </Box>
@@ -232,7 +253,12 @@ export default function AlertesTable({ filters, onInspect, onTotalChange }) {
       }
       return col;
     });
-  }, [allColumns, firstVisibleFields, tarifFields, leMansFields]);
+  }, [allColumns, firstVisibleFields]);
+
+  // Filtrer les colonnes visibles
+  const visibleColumns = useMemo(() => {
+    return columnsWithBorder.filter(c => colVisibility[c.field] !== false);
+  }, [columnsWithBorder, colVisibility]);
 
   return (
     <Box>
@@ -247,12 +273,16 @@ export default function AlertesTable({ filters, onInspect, onTotalChange }) {
       </Box>
       <PaginatedDataGrid
         key={resetKey}
-        columns={columnsWithBorder.filter(c => colVisibility[c.field])}
+        resetKey={resetKey}
+        mode="server"
+        columns={visibleColumns}
         fetchRows={fetchRows}
         initialPageSize={pageSize}
+        pageSizeOptions={[20, 50, 100]}
         getRowId={(row) => row ? `${row.cod_pro}-${row.no_tarif}` : `empty-${Math.random()}`}
         filterModel={{ items: [], quickFilterValues: [] }}
         onFilterChange={() => { }}
+        sortingMode="server"
       />
     </Box>
   );

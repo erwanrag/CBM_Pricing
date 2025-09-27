@@ -66,6 +66,7 @@ export default function CompareTarifTable({
   );
   const blocFields = [leMansFields, ...tarifFields];
 
+  // Définition stable des colonnes
   const allColumns = useMemo(() => {
     const baseCols = [
       { field: "cod_pro", headerName: "Code Produit", width: 110 },
@@ -75,7 +76,7 @@ export default function CompareTarifTable({
         field: "qualite",
         headerName: "Qualité",
         width: 100,
-        renderCell: ({ value }) => <BadgeQualite qualite={value} />,
+        renderCell: ({ value }) => value ? <BadgeQualite qualite={value} /> : "-",
       },
       {
         field: "prix_achat",
@@ -87,7 +88,7 @@ export default function CompareTarifTable({
         field: "statut",
         headerName: "Statut",
         width: 90,
-        renderCell: ({ value }) => <StatutBadge value={value} />,
+        renderCell: ({ value }) => value ? <StatutBadge value={value} /> : "-",
       },
       { field: "ca_LM", headerName: headerWithLeMans("CA (€)"), width: 100 },
       { field: "qte_LM", headerName: headerWithLeMans("Qté"), width: 70 },
@@ -137,67 +138,96 @@ export default function CompareTarifTable({
     [colVisibility, allColumns, blocFields]
   );
 
+  // Initialisation de la visibilité des colonnes
   useEffect(() => {
-    setColVisibility((old) => {
-      old = old || {};
-      const map = Object.fromEntries(allColumns.map(c => [c.field, old[c.field] !== false]));
-      return map;
-    });
-  }, [allColumns, setColVisibility]);
+    if (!colVisibility) {
+      const defaultVisibility = Object.fromEntries(allColumns.map(c => [c.field, true]));
+      setColVisibility(defaultVisibility);
+    }
+  }, [allColumns, colVisibility, setColVisibility]);
 
   const handleReset = useCallback(() => {
     setColVisibility(Object.fromEntries(allColumns.map(c => [c.field, true])));
   }, [allColumns, setColVisibility]);
 
+  // Ajout des renderCell pour chaque colonne avec memoization
   const columnsWithRenderCell = useMemo(() => {
+    if (!colVisibility) return allColumns;
+    
     return allColumns.map(col => {
       const isQteOrStock = col.field === "qte_LM" || col.field === "stock_LM";
       const isTarifCol = tarifs.some(no_tarif => col.field.endsWith(`_${no_tarif}`));
 
+      // Colonnes Le Mans
       if (leMansFields.includes(col.field)) {
         return {
           ...col,
-          renderCell: (params) => (
-            <Box sx={{
-              ...(firstVisibleFields.has(col.field) && { borderLeft: `2.5px solid ${BORDER_GRAY}`, pl: 1 }),
-              textAlign: "right", width: "100%", display: "flex", alignItems: "center",
-            }}>
-              {isQteOrStock
-                ? (!params.value || params.value === 0 ? "-" : params.value)
-                : formatPrix(params.value)}
-            </Box>
-          )
+          renderCell: (params) => {
+            const hasBorder = firstVisibleFields.has(col.field);
+            return (
+              <Box sx={{
+                ...(hasBorder && { borderLeft: `2.5px solid ${BORDER_GRAY}`, pl: 1 }),
+                textAlign: "right", 
+                width: "100%", 
+                display: "flex", 
+                alignItems: "center",
+              }}>
+                {isQteOrStock
+                  ? (!params.value || params.value === 0 ? "-" : params.value)
+                  : formatPrix(params.value)}
+              </Box>
+            );
+          }
         };
       }
 
+      // Colonnes Tarifs
       if (isTarifCol) {
         return {
           ...col,
           renderCell: ({ row }) => {
             const fieldMatch = col.field.match(/_(\d+)$/);
             const no_tarif = fieldMatch ? fieldMatch[1] : null;
-            const t = row.tarifs?.[no_tarif] || {};
+            
+            // Gestion sûre de l'accès aux données tarifs
+            const tarifData = row.tarifs && row.tarifs[no_tarif] ? row.tarifs[no_tarif] : {};
+            const hasBorder = firstVisibleFields.has(col.field);
+            
             let content = "-";
 
-            if (col.field.startsWith("prix_")) content = formatPrix(t.prix);
-            else if (col.field.startsWith("marge_realisee_")) content = formatPrix(t.marge_realisee);
-            else if (col.field.startsWith("ca_")) content = formatPrix(t.ca);
-            else if (col.field.startsWith("marge_")) {
-              const pct = (t.marge ?? 0) * 100;
-              return (
-                <Box sx={{
-                  ...(firstVisibleFields.has(col.field) && { borderLeft: `2.5px solid ${BORDER_GRAY}`, pl: 1 }),
-                  width: "100%", display: "flex", alignItems: "center", justifyContent: "flex-end"
-                }}>
-                  <MargeColorBox value={pct} size="small" />
-                </Box>
-              );
-            } else if (col.field.startsWith("qte_")) content = (!t.qte || t.qte === 0 ? "-" : t.qte);
+            // Détermination du contenu selon le type de colonne
+            if (col.field.startsWith("prix_")) {
+              content = tarifData.prix != null ? formatPrix(tarifData.prix) : "-";
+            } else if (col.field.startsWith("marge_realisee_")) {
+              content = tarifData.marge_realisee != null ? formatPrix(tarifData.marge_realisee) : "-";
+            } else if (col.field.startsWith("ca_")) {
+              content = tarifData.ca != null ? formatPrix(tarifData.ca) : "-";
+            } else if (col.field.startsWith("marge_")) {
+              const pct = tarifData.marge != null ? (tarifData.marge * 100) : null;
+              if (pct !== null) {
+                return (
+                  <Box sx={{
+                    ...(hasBorder && { borderLeft: `2.5px solid ${BORDER_GRAY}`, pl: 1 }),
+                    width: "100%", 
+                    display: "flex", 
+                    alignItems: "center", 
+                    justifyContent: "flex-end"
+                  }}>
+                    <MargeColorBox value={pct} size="small" />
+                  </Box>
+                );
+              }
+            } else if (col.field.startsWith("qte_")) {
+              content = (!tarifData.qte || tarifData.qte === 0) ? "-" : tarifData.qte;
+            }
 
             return (
               <Box sx={{
-                ...(firstVisibleFields.has(col.field) && { borderLeft: `2.5px solid ${BORDER_GRAY}`, pl: 1 }),
-                textAlign: "right", width: "100%", display: "flex", alignItems: "center"
+                ...(hasBorder && { borderLeft: `2.5px solid ${BORDER_GRAY}`, pl: 1 }),
+                textAlign: "right", 
+                width: "100%", 
+                display: "flex", 
+                alignItems: "center"
               }}>
                 {content}
               </Box>
@@ -206,32 +236,61 @@ export default function CompareTarifTable({
         };
       }
 
+      // Colonnes de base (sans modification)
       return col;
     });
-  }, [allColumns, firstVisibleFields, tarifs]);
+  }, [allColumns, firstVisibleFields, tarifs, colVisibility]);
+
+  // Filtrage des colonnes visibles
+  const visibleColumns = useMemo(() => {
+    if (!colVisibility) return columnsWithRenderCell;
+    return columnsWithRenderCell.filter(col => colVisibility[col.field] !== false);
+  }, [columnsWithRenderCell, colVisibility]);
+
+  // Wrapper fetchRows avec gestion d'erreur
+  const safeFetchRows = useCallback(async (page, pageSize, filterModel, sortModelParam) => {
+    try {
+      const result = await fetchRows(page, pageSize, filterModel, sortModelParam);
+      
+      // Validation et normalisation des données
+      const normalizedRows = (result.rows || []).map(row => ({
+        ...row,
+        cod_pro: row.cod_pro || `temp_${Math.random()}`,
+        tarifs: row.tarifs || {}
+      }));
+      
+      return {
+        rows: normalizedRows,
+        total: result.total || 0
+      };
+    } catch (error) {
+      console.error("Erreur lors du chargement des données:", error);
+      return { rows: [], total: 0 };
+    }
+  }, [fetchRows]);
 
   return (
     <Box>
       <Box sx={{ mb: 1 }}>
         <ColumnPicker
           allColumns={allColumns}
-          visibility={colVisibility || Object.fromEntries(allColumns.map(c => [c.field, true]))}
+          visibility={colVisibility || {}}
           setVisibility={setColVisibility}
           onReset={handleReset}
         />
       </Box>
       <PaginatedDataGrid
-        mode="strict"
-        columns={columnsWithRenderCell.filter(c => colVisibility && colVisibility[c.field])}
-        fetchRows={fetchRows}
+        mode="server"
+        columns={visibleColumns}
+        fetchRows={safeFetchRows}
         filterModel={{ items: [] }}
         sortModel={sortModel}
         sortingMode="server"
         onFilterChange={() => { }}
         onSortModelChange={onSortModelChange}
-        pageSizeOptions={[20, 50, 100]}
-        initialPageSize={20}
-        getRowId={(row) => row?.cod_pro ?? `row-${Math.random()}`}
+        pageSizeOptions={[50, 100, 200, 500]}
+        initialPageSize={100}
+        getRowId={(row) => row?.cod_pro || `row-${Math.random()}`}
       />
     </Box>
   );
