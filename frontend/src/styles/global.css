@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-gray-50 text-gray-900 font-sans;
+}
+.editable-cell {
+  background-color: #fff8dc; /* jaune clair pro */
+  font-weight: bold;
+}
+.modified-row {
+  background-color: #e0f7fa !important;
+}
+.highlighted-row {
+  background-color: #fff8dc !important;
+  border-left: 4px solid #1976d2 !important;
+}
+
+/* ✅ Met en gras la ligne sélectionnée */
+.MuiDataGrid-row.highlighted-row {
+  font-weight: bold !important;
+}
+.MuiDataGrid-root.striped-columns .MuiDataGrid-cell:nth-child(-n + 5),
+.MuiDataGrid-root.striped-columns .MuiDataGrid-columnHeader:nth-child(-n + 5) {
+  background-color: #ffffff !important;
+}
+
+.MuiDataGrid-root.striped-columns .MuiDataGrid-cell:nth-child(n + 6):nth-child(-n + 8),
+.MuiDataGrid-root.striped-columns .MuiDataGrid-columnHeader:nth-child(n + 6):nth-child(-n + 8) {
+  background-color: #e3f2fd !important;
+}
+
+.MuiDataGrid-root.striped-columns .MuiDataGrid-cell:nth-child(n + 9):nth-child(-n + 12),
+.MuiDataGrid-root.striped-columns .MuiDataGrid-columnHeader:nth-child(n + 9):nth-child(-n + 12) {
+  background-color: #ffffff !important;
+}
+
+.MuiDataGrid-root.striped-columns .MuiDataGrid-cell:nth-child(n + 13):nth-child(-n + 16),
+.MuiDataGrid-root.striped-columns .MuiDataGrid-columnHeader:nth-child(n + 13):nth-child(-n + 16) {
+  background-color: #e3f2fd !important;
+}
+
+.MuiDataGrid-root.striped-columns .MuiDataGrid-cell:nth-child(17),
+.MuiDataGrid-root.striped-columns .MuiDataGrid-columnHeader:nth-child(17) {
+  background-color: #ffffff !important;
+}

@@ -1,0 +1,32 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  build-and-lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 📦 Install dependencies
+        working-directory: frontend
+        run: npm install --legacy-peer-deps
+
+      - name: 🧪 Run ESLint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: 🧼 Run Prettier (check mode)
+        working-directory: frontend
+        run: npm run format -- --check
+
+      - name: 🛠️ Build frontend
+        working-directory: frontend
+        run: npm run build

@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "dayjs": "^1.11.13",
+    "react-toastify": "^11.0.5"
+  }
+}

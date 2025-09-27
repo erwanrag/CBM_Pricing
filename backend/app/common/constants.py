@@ -1,0 +1,7 @@
+# 📄 backend/app/common/constants.py
+
+REDIS_TTL_SHORT = 30
+REDIS_TTL_MEDIUM = 600
+REDIS_TTL_LONG = 86400
+
+DEFAULT_PAGE_SIZE = 100

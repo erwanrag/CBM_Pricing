@@ -1,0 +1,40 @@
+fastapi>=0.110.0
+slowapi>=0.1.5
+
+uvicorn[standard]>=0.27.0
+
+# Database
+pyodbc
+sqlalchemy[asyncio,pyodbc]>=2.0.0
+aioodbc
+
+# Env / Config
+python-dotenv
+pydantic[email]>=2.4,<3
+pydantic-settings>=2.0,<3
+
+# Sécurité / Auth
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt==4.0.1
+
+# Outils web / Dev
+python-multipart
+aiocache
+redis>=4.2,<6
+psutil
+pyinstaller
+loguru
+aiofiles
+
+# Analyse / Data
+pandas
+
+# Tests
+pytest>=7.4,<8
+pytest-asyncio>=0.23,<1
+pytest-cov>=4.0
+httpx
+
+# Code style
+black

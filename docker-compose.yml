@@ -1,0 +1,23 @@
+version: "3.8"
+services:
+  backend:
+    build: ./backend
+    env_file:
+      - .env.dev     # ou .env.prod selon l'env
+    ports:
+      - "8001:8000"
+    depends_on:
+      - redis
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "3010:80"
+    depends_on:
+      - backend
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
