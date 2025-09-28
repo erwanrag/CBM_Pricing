@@ -35,7 +35,7 @@ async def get_dashboard_kpi(payload: DashboardFilterRequest, db: AsyncSession):
     payload.cod_pro_list = await extract_cod_pro_list(payload, db)
     logger.info(f"[get_dashboard_kpi] cod_pro_list: {payload.cod_pro_list}")
     if not payload.cod_pro_list:
-      return {"items": []}  # ou "rows": [] selon la fonction
+      return {"items": []}
 
     redis_key = dashboard_kpi_key(
         no_tarif=payload.no_tarif,
@@ -57,6 +57,8 @@ async def get_dashboard_kpi(payload: DashboardFilterRequest, db: AsyncSession):
 
     params = {"no_tarif": payload.no_tarif}
     placeholders = ", ".join([f":p{i}" for i in range(len(payload.cod_pro_list))])
+    
+    # CORRECTION: Ajouter marge_absolue pour calcul correct
     query = f"""
         SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
         WITH produits AS (
@@ -68,14 +70,15 @@ async def get_dashboard_kpi(payload: DashboardFilterRequest, db: AsyncSession):
                 p.refint, 
                COUNT(DISTINCT p.cod_pro) AS produits_actifs,
                ROUND(ISNULL(SUM(v.tot_vte_eur), 0), 2) AS ca_total,
+               ROUND(ISNULL(SUM(v.tot_marge_pr_eur), 0), 2) AS marge_absolue,
                ISNULL(ROUND(CASE WHEN SUM(v.tot_vte_eur) = 0 THEN 0 ELSE SUM(v.tot_marge_pr_eur) / SUM(v.tot_vte_eur) END, 4), 0.0) AS marge_moyenne,
                COUNT(DISTINCT a.cod_pro) AS alertes_actives
         FROM produits p
         LEFT JOIN CBM_DATA.Pricing.Px_vte_mouvement v WITH (NOLOCK)
             ON v.cod_pro = p.cod_pro AND v.no_tarif = p.no_tarif
-            AND v.dat_mvt >= DATEFROMPARTS(YEAR(DATEADD(month, -11, GETDATE())), MONTH(DATEADD(month, -11, GETDATE())), 1)
+            AND v.dat_mvt >= DATEFROMPARTS(YEAR(DATEADD(month, -12, GETDATE())), MONTH(DATEADD(month, -12, GETDATE())), 1)
             AND v.type_prix_code = 3
-        LEFT JOIN CBM_DATA.Pricing.Alertes a WITH (NOLOCK)
+        LEFT JOIN CBM_DATA.Pricing.vw_Alertes_Detaillees a WITH (NOLOCK)
             ON a.cod_pro = p.cod_pro AND a.no_tarif = p.no_tarif AND a.est_active = 1
         GROUP BY p.cod_pro, p.refint;
     """
@@ -94,8 +97,9 @@ async def get_dashboard_kpi(payload: DashboardFilterRequest, db: AsyncSession):
                 "refint": row[1],
                 "produits_actifs": row[2],
                 "ca_total": row[3],
-                "marge_moyenne": row[4],
-                "alertes_actives": row[5],
+                "marge_absolue": row[4],  # NOUVEAU: marge absolue
+                "marge_moyenne": row[5],  # marge relative par produit
+                "alertes_actives": row[6],
             }
             for row in rows
         ]
@@ -152,6 +156,7 @@ async def get_historique_prix_marge(payload: DashboardFilterRequest, db: AsyncSe
         INNER JOIN produits p ON p.cod_pro = mvt.cod_pro AND p.no_tarif = mvt.no_tarif
         INNER JOIN CBM_DATA.dm.Dim_Date d WITH (NOLOCK) ON mvt.dat_mvt = d.Date 
         WHERE mvt.[type_prix_code] = 3
+        AND d.FirstOfMonth >= DATEADD(MONTH, -12, DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1))
     ),
     last_12_months AS (
         SELECT DISTINCT TOP 12 periode

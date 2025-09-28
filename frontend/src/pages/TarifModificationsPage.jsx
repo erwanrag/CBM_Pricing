@@ -1,3 +1,2 @@
 // src/pages/TarifModificationsPage.jsx
-import ModificationPage from "@/features/modifications/ModificationPage";
-export default ModificationPage;
+export { default } from "@/features/modifications/ModificationsPage";

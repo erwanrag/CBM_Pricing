@@ -1,6 +1,5 @@
-// src/features/dashboard/DashboardPage.jsx
-
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+// 📁 src/features/dashboard/DashboardPage.jsx - Corrections critiques
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useSearchParams, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useLayout } from "@/context/layout/LayoutContext";
@@ -9,7 +8,7 @@ import PageTitle from "@/shared/components/page/PageTitle";
 import KPISection from "./components/DashboardKPI";
 import GraphSection from "./components/GraphSection";
 import ProductsTable from "./components/ProductsTable";
-import DashboardDetailPanel from "./components/DashboardDetail";
+import DashboardDetailPanel from "./components/DashboardDetailPanel";
 import {
   fetchDashboardKPI,
   fetchDashboardProducts,
@@ -20,225 +19,289 @@ import { resolveCodPro } from "@/api/identifierApi";
 import { toast } from "react-toastify";
 
 export default function DashboardPage() {
-  // ========== 1. Initialisation et CONTEXT ==========
-
+  // ========== 1. Context et États ==========
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const context = useLayout();
+  const { filters, setFilters, setFilterType } = useLayout();
 
-  // Filtres issus du contexte global (sidebar)
-  const filters = useMemo(() => context?.filters || { no_tarif: null }, [context?.filters]);
-
-  // Sélection locale pour l’inspection détaillée
+  // États locaux optimisés
   const [selectedCodPro, setSelectedCodPro] = useState(null);
   const [selectedProductDetails, setSelectedProductDetails] = useState(null);
-  const [initialFetchDone, setInitialFetchDone] = useState(false);
   const [clickedCodPro, setClickedCodPro] = useState(null);
+  const [initialFetchDone, setInitialFetchDone] = useState(false);
 
+  // ========== 2. DÉFINIR LE FILTERTYPE STABLE ==========
+  useEffect(() => {
+    setFilterType?.("dashboard");
+  }, [setFilterType]);
 
-  // ========== 2. Gestion du routing et initialisation des filtres ==========
+  // ========== 3. Gestionnaires d'événements stables ==========
+  const handleSetSelectedCodPro = useCallback((codPro) => {
+    setSelectedCodPro(codPro);
+  }, []);
 
-  // 2.1. Si on arrive via une URL avec des paramètres, on résout la liste de produits à afficher
+  const handleSetClickedCodPro = useCallback((codPro) => {
+    setClickedCodPro(codPro);
+  }, []);
+
+  const handleClearClicked = useCallback(() => {
+    setClickedCodPro(null);
+  }, []);
+
+  const handleInspectProduct = useCallback((codPro) => {
+    setSelectedCodPro(codPro);
+    setSelectedProductDetails({ 
+      cod_pro: codPro, 
+      no_tarif: filters?.no_tarif,
+    });
+  }, [filters?.no_tarif]);
+
+  const handleCloseDetailPanel = useCallback(() => {
+    setSelectedCodPro(null);
+    setSelectedProductDetails(null);
+  }, []);
+
+  // ========== 4. Résolution initiale des paramètres URL (optimisée) ==========
   const resolveInitialCodPro = useCallback(async () => {
     const cod_pro = searchParams.get("cod_pro");
     const ref_crn = searchParams.get("ref_crn");
     const no_tarif = Number(searchParams.get("no_tarif") || 0);
+    const grouping_crn = Number(searchParams.get("grouping_crn") || 1);
 
     const alreadyHandled = sessionStorage.getItem("dashboardInit") === "1";
-    if (!initialFetchDone && !alreadyHandled && no_tarif && (cod_pro || ref_crn)) {
-      try {
-        const payload = {
-          no_tarif,
-          cod_pro: cod_pro ? Number(cod_pro) : undefined,
-          ref_crn: ref_crn || undefined,
-          grouping_crn: 1,
-        };
-
-        const res = await resolveCodPro(payload);
-        if (!res.data?.length) {
-          toast.info("Aucun produit trouvé pour les filtres sélectionnés.");
-          return;
-        }
-        const outputFilters = {
-          no_tarif,
-          cod_pro_list: res.data,
-          selected_cod_pro: cod_pro ? Number(cod_pro) : res.data[0] || null,
-        };
-        context?.setFilters?.(outputFilters);
-        setSelectedCodPro(outputFilters.selected_cod_pro);
-        sessionStorage.setItem("dashboardInit", "1");
-        setInitialFetchDone(true);
-      } catch (err) {
-        console.error("Erreur résolution cod_pro_list :", err);
-      }
+    if (initialFetchDone || alreadyHandled || !no_tarif || (!cod_pro && !ref_crn)) {
+      setInitialFetchDone(true);
+      return;
     }
-  }, [context, initialFetchDone, searchParams]);
 
-  useEffect(() => { resolveInitialCodPro(); }, [resolveInitialCodPro]);
+    try {
+      const payload = {
+        no_tarif,
+        cod_pro: cod_pro ? Number(cod_pro) : undefined,
+        ref_crn: ref_crn || undefined,
+        grouping_crn,
+      };
 
-  // 2.2. Highlight automatique si context change (filtre sélectionné)
+      const res = await resolveCodPro(payload);
+      
+      if (!res.data?.length) {
+        toast.info("Aucun produit trouvé pour les filtres sélectionnés.");
+        setInitialFetchDone(true);
+        return;
+      }
+
+      const outputFilters = {
+        no_tarif,
+        cod_pro_list: res.data,
+        selected_cod_pro: cod_pro ? Number(cod_pro) : res.data[0] || null,
+        _forceRefresh: Date.now().toString(),
+      };
+
+      setFilters?.(outputFilters);
+      setSelectedCodPro(outputFilters.selected_cod_pro);
+      
+      sessionStorage.setItem("dashboardInit", "1");
+      setInitialFetchDone(true);
+    } catch (error) {
+      console.error("Erreur résolution URL:", error);
+      toast.error("Erreur lors de la résolution des produits");
+      setInitialFetchDone(true);
+    }
+  }, [searchParams, initialFetchDone, setFilters]);
+
+  // Effect pour la résolution initiale
   useEffect(() => {
-    if (filters?.selected_cod_pro) setSelectedCodPro(filters.selected_cod_pro);
-    else setSelectedCodPro(null);
-  }, [filters?.selected_cod_pro]);
+    resolveInitialCodPro();
+  }, [resolveInitialCodPro]);
 
-  // 2.3. Marque la page Dashboard pour le context global (pour afficher les bons filtres dans la sidebar)
-  useEffect(() => {
-    context?.setFilterType?.("dashboard");
-    return () => {
-      context?.setFilterType?.(null);
-    };
-  }, [context]);
+  // ========== 5. Queries React Query (optimisées) ==========
+  const hasValidFilters = Boolean(filters?.no_tarif && filters?.cod_pro_list?.length > 0);
 
-  // ========== 3. Déduction de la "source de vérité" pour codProList ==========
-
-  const codProList = useMemo(
-    () =>
-      filters?.cod_pro_list && filters.cod_pro_list.length > 0
-        ? filters.cod_pro_list
-        : filters?.selected_cod_pro
-          ? [filters.selected_cod_pro]
-          : [],
-    [filters.cod_pro_list, filters.selected_cod_pro, filters._forceRefresh] // <-- ajoute ici
-  );
-  // Définition de la pagination
-
-  const pageSize = 200;
-  const limitGraph = Math.min(400, codProList.length || 400);
-  // Filtres stables pour requêtes paginées ou usages répétés
-  const stableFilters = useMemo(
-    () => ({
-      no_tarif: filters.no_tarif,
-      cod_pro_list: codProList,
-      _forceRefresh: filters._forceRefresh
-    }),
-    [filters.no_tarif, codProList.join(","), filters._forceRefresh]
-  );
-
-  // Pour éviter les requêtes inutiles (et les 422)
-  const enabled =
-    !!filters?.no_tarif && Array.isArray(codProList) && codProList.length > 0;
-
-  // ========== 4. Récupération des données via React Query ==========
-
-  // 4.1. KPI principaux (CA, marge, etc.)
-  const { data: productsKpiData = { items: [] }, isLoading: loadingKpi } = useQuery({
-    enabled,
-    queryKey: ["dashboard-kpi", filters.no_tarif, codProList, filters._forceRefresh],
-    queryFn: () =>
-      fetchDashboardKPI({
-        no_tarif: filters.no_tarif,
-        cod_pro_list: codProList,
-        _forceRefresh: filters._forceRefresh
-      }),
+  console.log("DASHBOARD DEBUG:", {
+    hasValidFilters,
+    filters,
+    initialFetchDone,
+    location: location.pathname
   });
 
-  // 4.2. Historique prix / marge (pour le graphique)
-  const { data: historiqueData = [], isLoading: loadingHist } = useQuery({
-    enabled,
-    queryKey: ["dashboard-historique", filters.no_tarif, codProList, filters._forceRefresh],
-    queryFn: () =>
-      fetchHistoriquePrixMarge({
-        no_tarif: filters.no_tarif,
-        cod_pro_list: codProList,
-        _forceRefresh: filters._forceRefresh
-      }),
+  const {
+    data: kpiData,
+    isLoading: kpiLoading,
+    error: kpiError,
+  } = useQuery({
+    queryKey: ["dashboard-kpi", filters?.no_tarif, filters?.cod_pro_list, filters?._forceRefresh],
+    queryFn: () => fetchDashboardKPI(filters),
+    enabled: hasValidFilters,
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 2,
   });
 
-  // 4.3. Tableau produits
-  const { data: productsData = { rows: [] } } = useQuery({
-    enabled,
-    queryKey: ["dashboard-products", filters.no_tarif, codProList, filters._forceRefresh],
-    queryFn: () =>
-      fetchDashboardProducts(
-        {
-          no_tarif: filters.no_tarif,
-          cod_pro_list: codProList,
-          _forceRefresh: filters._forceRefresh
-        },
-        0,
-        pageSize
-      ),
-  });
-
-  // 4.4. Alertes map (cod_pro → alertes) pour surlignage
-  const { data: alertesMap = {}, isLoading: loadingAlertes } = useQuery({
-    enabled,
-    queryKey: ["dashboard-alertes", filters.no_tarif, codProList, filters._forceRefresh],
+  // Correction de l'appel getAlertesMap avec les bons paramètres
+  const {
+    data: alertesMap = {},
+  } = useQuery({
+    queryKey: ["alertes-map", filters?.no_tarif, filters?.cod_pro_list, filters?._forceRefresh],
     queryFn: async () => {
-      const res = await getAlertesMap(filters.no_tarif, codProList);
-      const items = res.items || []; // ← Prends bien la propriété items !
-      const map = {};
-      items.forEach(({ cod_pro, code_regle, champ }) => {
-        map[String(cod_pro)] = map[String(cod_pro)] || [];
-        map[String(cod_pro)].push({ code_regle, champ });
-      });
-      return map;
+      try {
+        // Validation explicite des paramètres avant l'appel
+        if (!filters?.no_tarif || !filters?.cod_pro_list?.length) {
+          console.warn("getAlertesMap: paramètres invalides", { 
+            no_tarif: filters?.no_tarif, 
+            cod_pro_list: filters?.cod_pro_list 
+          });
+          return {};
+        }
+
+        console.log("getAlertesMap payload:", { 
+          no_tarif: filters.no_tarif, 
+          cod_pro_list: filters.cod_pro_list 
+        });
+
+        // Correction: utiliser la signature correcte de getAlertesMap
+        const result = await getAlertesMap(filters.no_tarif, filters.cod_pro_list);
+        const items = result.items || [];
+        const map = {};
+        
+        items.forEach(({ cod_pro, champ, code_regle }) => {
+          const codProKey = String(cod_pro);
+          if (!map[codProKey]) {
+            map[codProKey] = [];
+          }
+          map[codProKey].push({ code_regle, champ });
+        });
+        
+        return map;
+      } catch (error) {
+        console.error("Erreur chargement alertes:", error);
+        return {};
+      }
     },
+    enabled: hasValidFilters && Boolean(filters?.no_tarif && filters?.cod_pro_list?.length),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   });
 
-  // 4.5. Produits complets pour le graph de répartition
-  const { data: allProductsData = { rows: [] } } = useQuery({
-    enabled,
-    queryKey: ["dashboard-products-full", filters.no_tarif, codProList, filters._forceRefresh],
-    queryFn: () =>
-      fetchDashboardProducts(
-        {
-          no_tarif: filters.no_tarif,
-          cod_pro_list: codProList,
-          _forceRefresh: filters._forceRefresh
-        },
-        0,
-        limitGraph
-      ),
+  const {
+    data: historiqueData,
+    isLoading: historiqueLoading,
+  } = useQuery({
+    queryKey: ["dashboard-historique", filters?.no_tarif, filters?.cod_pro_list, filters?._forceRefresh],
+    queryFn: () => fetchHistoriquePrixMarge({
+      no_tarif: filters?.no_tarif,
+      cod_pro_list: filters?.cod_pro_list,
+    }),
+    enabled: hasValidFilters,
+    staleTime: 15 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
-  // ========== 5. Affichage conditionnel (si pas de filtre sélectionné) ==========
+  // Récupération des données produits pour les graphiques
+  const {
+    data: produitsDataResponse,
+    isLoading: produitsLoading,
+  } = useQuery({
+    queryKey: ["dashboard-products-graph", filters?.no_tarif, filters?.cod_pro_list, filters?._forceRefresh],
+    queryFn: () => fetchDashboardProducts(filters, 0, 100), // Limite plus élevée pour les graphiques
+    enabled: hasValidFilters,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
 
-  if (!enabled) {
+  // ========== 6. Données pour les composants (mémorisées) ==========
+  const produitsData = useMemo(() => {
+    return produitsDataResponse?.rows || [];
+  }, [produitsDataResponse]);
+
+  // ========== 7. Rendu conditionnel simplifié ==========
+  
+  // État de chargement initial
+  if (!initialFetchDone) {
     return (
       <PageWrapper>
-        <PageTitle>📊 Dashboard Pricing CBM</PageTitle>
-        <p>
-          Aucun produit à afficher. Veuillez sélectionner des filtres et cliquer sur
-          "Valider".
-        </p>
+        <PageTitle>Dashboard</PageTitle>
+        <div style={{ padding: "2rem", textAlign: "center" }}>
+          <p>Initialisation du dashboard...</p>
+        </div>
       </PageWrapper>
     );
   }
 
-  // ========== 6. Rendu UI principal ==========
+  // Pas de filtres valides après initialisation
+  if (!hasValidFilters) {
+    return (
+      <PageWrapper>
+        <PageTitle>Dashboard</PageTitle>
+        <div style={{ padding: "2rem", textAlign: "center" }}>
+          <p>Veuillez sélectionner un tarif et des produits dans la sidebar pour afficher le dashboard.</p>
+        </div>
+      </PageWrapper>
+    );
+  }
+
+  // ========== 8. Rendu principal ==========
+  console.log("RENDERING DASHBOARD MAIN CONTENT:", { 
+    hasValidFilters, 
+    kpiData, 
+    kpiLoading, 
+    alertesMap: Object.keys(alertesMap).length 
+  });
 
   return (
     <PageWrapper>
-      <PageTitle>📊 Dashboard Pricing CBM</PageTitle>
+      <PageTitle>Dashboard</PageTitle>
+      
+      {/* Debug visuel optionnel - à supprimer en production */}
+      {process.env.NODE_ENV === 'development' && (
+        <div style={{ 
+          padding: "10px", 
+          backgroundColor: "#e8f5e8", 
+          margin: "10px", 
+          borderRadius: "4px",
+          fontSize: "12px" 
+        }}>
+          DEBUG: hasValidFilters={hasValidFilters ? "true" : "false"} | 
+          KPI={kpiLoading ? "loading" : kpiData ? "loaded" : "empty"} | 
+          Alertes={Object.keys(alertesMap).length}
+        </div>
+      )}
 
-      <KPISection
-        products={productsKpiData.items ?? []}
+      {/* Section KPI */}
+      <KPISection 
+        data={kpiData} 
+        loading={kpiLoading} 
+        error={kpiError}
         clickedCodPro={clickedCodPro}
-        onClearClicked={() => setClickedCodPro(null)}
+        onClearClicked={handleClearClicked}
+        produitsData={produitsData}
       />
 
+      {/* Section Graphiques */}
       <GraphSection
-        selectedCodPro={clickedCodPro}
-        historique={historiqueData}
-        produits={allProductsData.rows}
+        selectedCodPro={selectedCodPro}
+        filters={filters}
+        historiqueData={historiqueData}
+        historiqueLoading={historiqueLoading}
+        produitsData={produitsData}
       />
 
+      {/* Table des produits */}
       <ProductsTable
-        filters={stableFilters}
+        filters={filters}
         clickedCodPro={clickedCodPro}
-        setClickedCodPro={setClickedCodPro}
+        setClickedCodPro={handleSetClickedCodPro}
         selectedCodPro={selectedCodPro}
-        setSelectedCodPro={setSelectedCodPro}
-        onInspectProduct={setSelectedProductDetails}
+        setSelectedCodPro={handleSetSelectedCodPro}
+        onInspectProduct={handleInspectProduct}
         alertesMap={alertesMap}
       />
 
+      {/* Panel de détail */}
       <DashboardDetailPanel
         cod_pro={selectedProductDetails?.cod_pro}
-        no_tarif={filters.no_tarif}
-        onClose={() => setSelectedProductDetails(null)}
+        no_tarif={selectedProductDetails?.no_tarif}
+        onClose={handleCloseDetailPanel}
       />
     </PageWrapper>
   );

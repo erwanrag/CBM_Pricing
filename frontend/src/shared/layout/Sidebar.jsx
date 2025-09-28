@@ -1,4 +1,5 @@
 // 📁 src/shared/layout/Sidebar.jsx
+import React, { useEffect } from "react";
 import { Drawer, Box, Divider, Typography, Paper } from "@mui/material";
 import { useLayout } from "@/context/layout/LayoutContext";
 import { AnimatePresence, motion } from "framer-motion";
@@ -12,6 +13,19 @@ const Sidebar = () => {
   const context = useLayout();
   const filterType = context?.filterType;
   const showFilters = filterType === "dashboard";
+
+  // Debug pour identifier le problème (seulement aux changements significatifs)
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log("Sidebar filterType change:", {
+        filterType,
+        showFilters,
+        contextAvailable: !!context,
+        isSidebarOpen,
+        isSidebarPinned
+      });
+    }
+  }, [filterType, showFilters]); // Log seulement quand ces valeurs changent
 
   return (
     <AnimatePresence>
@@ -28,40 +42,56 @@ const Sidebar = () => {
             open={true}
             onClose={closeSidebar}
             sx={{
-              width: 240,
+              width: 280, // Augmenté pour meilleur affichage des filtres
               flexShrink: 0,
               "& .MuiDrawer-paper": {
-                width: 240,
+                width: 280,
                 boxSizing: "border-box",
                 backgroundColor: "#f9fafb",
                 borderRight: "1px solid #e0e0e0",
                 display: "flex",
                 flexDirection: "column",
-                alignItems: "center",
-                pt: 8,
+                pt: 2, // Réduit pour plus d'espace
               },
             }}
           >
+            {/* Logo et titre */}
             <Box
-              sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, mb: 3 }}
+              sx={{ 
+                display: "flex", 
+                flexDirection: "column", 
+                alignItems: "center", 
+                gap: 1, 
+                mb: 2,
+                px: 2
+              }}
             >
-              <img src={logo} alt="CBM Logo" style={{ width: "80px" }} />
-              {isSidebarPinned && (
-                <Typography variant="subtitle2" sx={{ fontWeight: 600, color: "primary.main" }}>
-                  CBM Pricing
-                </Typography>
-              )}
+              <img src={logo} alt="CBM Logo" style={{ width: "60px" }} />
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, color: "primary.main" }}>
+                CBM Pricing
+              </Typography>
             </Box>
 
-            <Navigation />
+            {/* Navigation */}
+            <Box sx={{ px: 1 }}>
+              <Navigation />
+            </Box>
 
-            <Divider sx={{ width: "100%", mt: "auto" }} />
+            {/* Filtres Dashboard - Ajout conditionnel amélioré */}
+            {showFilters ? (
+              <Box sx={{ mt: "auto", p: 2 }}>
+                <FiltersPanel />
+              </Box>
+            ) : (
+              <Box sx={{ mt: "auto" }} />
+            )}
 
-            {showFilters && (
-              <Box sx={{ width: "100%", px: 0, py: 3 }}>
-                <Paper elevation={1} sx={{ p: 2 }}>
-                  <FiltersPanel />
-                </Paper>
+            {/* Debug visuel en développement */}
+            {process.env.NODE_ENV === 'development' && (
+              <Box sx={{ p: 1, bgcolor: "#f0f0f0", fontSize: "10px" }}>
+                <Typography variant="caption">
+                  Debug: filterType={filterType}, showFilters={showFilters ? "true" : "false"}
+                </Typography>
               </Box>
             )}
           </Drawer>

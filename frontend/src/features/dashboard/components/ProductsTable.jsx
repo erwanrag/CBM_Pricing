@@ -1,12 +1,11 @@
-// 📁 src/features/dashboard/components/ProductsTable.jsx
-
-import React, { useMemo, useState, useEffect, useCallback } from "react";
+// 📁 src/features/dashboard/components/ProductsTable.jsx - Version corrigée
+import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { Box, Tooltip, IconButton, Typography } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import BadgeQualite from "@/shared/components/badges/BadgeQualite";
 import MargeColorBox from "@/shared/components/badges/MargeColorBox";
 import StatutBadge from "@/shared/components/badges/StatutBadge";
-import PaginatedDataGrid from "@/shared/components/tables/PaginatedDataGrid";
+import DashboardDataGrid from "./DashboardDataGrid";
 import { formatPrix } from "@/lib/format";
 import { fetchDashboardProducts } from "@/api/dashboardApi";
 import ColumnPicker from "@/shared/components/tables/ColumnPicker";
@@ -31,6 +30,19 @@ const headerWithBloc = (label, badge, color) => (
   </Box>
 );
 
+// Fonction utilitaire pour les bordures
+function getBlocFirstVisibleFields(colVisibility, allColumns, blocFields) {
+  const visibleCols = allColumns
+    .filter(c => colVisibility[c.field] !== false)
+    .map(c => c.field);
+  const firstVisibleSet = new Set();
+  blocFields.forEach(fields => {
+    const first = fields.find(f => visibleCols.includes(f));
+    if (first) firstVisibleSet.add(first);
+  });
+  return firstVisibleSet;
+}
+
 export default function ProductsTable({
   filters,
   clickedCodPro,
@@ -42,55 +54,68 @@ export default function ProductsTable({
 }) {
   const [rowCount, setRowCount] = useState(0);
 
-  // Clef unique pour forcer le reset DataGrid (change à chaque recherche)
-  const resetKey = useMemo(
-    () =>
-      JSON.stringify({
-        no_tarif: filters?.no_tarif,
-        cod_pro_list: filters?.cod_pro_list?.join(",") || "",
-        _forceRefresh: filters?._forceRefresh || ""
-      }),
-    [filters?.no_tarif, filters?.cod_pro_list, filters?._forceRefresh]
-  );
+  // Champs des blocs (constants)
+  const tarifFields = useMemo(() => ["px_vente", "px_achat", "taux_marge_px", "ca_total"], []);
+  const leMansFields = useMemo(() => ["ca_total_le_mans", "qte_le_mans", "marge_total_le_mans", "pmp_le_mans", "stock_le_mans"], []);
+  const blocFields = useMemo(() => [tarifFields, leMansFields], [tarifFields, leMansFields]);
 
+  // Gestionnaires d'événements stables avec useCallback
+  const handleInspectProduct = useCallback((codPro) => {
+    onInspectProduct?.(codPro);
+  }, [onInspectProduct]);
 
-  // === Champs blocs ===
-  const tarifFields = [
-    "px_vente", "px_achat", "taux_marge_px", "ca_total"
-  ];
-  const leMansFields = [
-    "ca_total_le_mans", "qte_le_mans", "marge_total_le_mans", "pmp_le_mans", "stock_le_mans"
-  ];
-  const blocFields = [tarifFields, leMansFields];
+  const handleRowClick = useCallback((params) => {
+    if (String(clickedCodPro) === String(params.row.cod_pro)) {
+      setClickedCodPro(null); // Déselectionne si déjà sélectionné
+    } else {
+      setClickedCodPro(params.row.cod_pro);
+    }
+  }, [clickedCodPro, setClickedCodPro]);
 
-  // === Colonnes DataGrid ===
+  const getRowClassName = useCallback((params) => {
+    if (String(params.row.cod_pro) === String(clickedCodPro)) return "highlighted-row";
+    if (!clickedCodPro && String(params.row.cod_pro) === String(selectedCodPro)) return "highlighted-row";
+    return "";
+  }, [clickedCodPro, selectedCodPro]);
+
+  // Reset key pour forcer le reset du DataGrid
+  const resetKey = useMemo(() => {
+    return JSON.stringify({
+      no_tarif: filters?.no_tarif,
+      cod_pro_list: filters?.cod_pro_list?.join(",") || "",
+      _forceRefresh: filters?._forceRefresh || ""
+    });
+  }, [filters?.no_tarif, filters?.cod_pro_list, filters?._forceRefresh]);
+
+  // Définition des colonnes avec mémorisation
   const allColumns = useMemo(() => [
-    { field: "cod_pro", headerName: "Code Produit", width: 100 },
-    { field: "refint", headerName: "Référence", width: 140 },
+    { field: "cod_pro", headerName: "Code Produit", width: 80 },
+    { field: "refint", headerName: "Référence", width: 120 },
     {
       field: "qualite",
       headerName: "Qualité",
-      width: 100,
+      width: 80,
       renderCell: ({ value }) => <BadgeQualite qualite={value} />,
     },
     {
       field: "statut",
       headerName: "Statut",
-      width: 90,
+      width: 80,
       renderCell: ({ value }) => <StatutBadge value={value} />,
     },
-    // === Bloc Tarif avec balise sous chaque entête ===
+    { field: "grouping_crn", headerName: "# Groupe Réf. Constructeur", width: 140 },
+    
+    // === Bloc Tarif ===
     {
       field: "px_vente",
-      headerName: headerWithBloc("Prix Vente (€)", "Tarif", TARIF_COLOR),
-      width: 110,
-      align: "right",
-      renderCell: ({ row }) => {
+      headerName: headerWithBloc("Px Vente (€)", "Tarif", TARIF_COLOR),
+      width: 120,
+      renderCell: ({ value, row }) => {
         const codProKey = String(row.cod_pro);
-        const alertes = alertesMap[codProKey] || alertesMap[row.cod_pro];
-        const hasAlertePxVente = alertes?.some(a => a.champ === "px_vente");
+        const alertes = alertesMap[codProKey] || [];
+        const hasAlertePxVente = alertes.some(a => a.champ === "px_vente");
         return (
-          <Tooltip title={hasAlertePxVente ? "Prix de vente suspect" : "OK"}>
+          <Tooltip title={hasAlertePxVente ? "Prix de vente suspect" : ""}>
             <Box
               sx={{
                 backgroundColor: hasAlertePxVente ? "#ffe0e0" : "transparent",
@@ -101,7 +126,7 @@ export default function ProductsTable({
                 textAlign: "right",
               }}
             >
-              {formatPrix(row.px_vente)}
+              {formatPrix(value)}
             </Box>
           </Tooltip>
         );
@@ -109,24 +134,23 @@ export default function ProductsTable({
     },
     {
       field: "px_achat",
-      headerName: headerWithBloc("Prix Achat (€)", "Tarif", TARIF_COLOR),
-      width: 110,
-      align: "right",
+      headerName: headerWithBloc("Px Achat (€)", "Tarif", TARIF_COLOR),
+      width: 120,
       renderCell: ({ value }) => formatPrix(value),
     },
     {
       field: "taux_marge_px",
-      headerName: headerWithBloc("Marge Px (%)", "Tarif", TARIF_COLOR),
-      width: 110,
-      renderCell: ({ value }) => <MargeColorBox value={value} />,
+      headerName: headerWithBloc("Marge %", "Tarif", TARIF_COLOR),
+      width: 100,
+      renderCell: ({ value }) => <MargeColorBox value={value} size="small" />,
     },
     {
       field: "ca_total",
-      headerName: headerWithBloc("CA Tarif (€)", "Tarif", TARIF_COLOR),
+      headerName: headerWithBloc("CA (€)", "Tarif", TARIF_COLOR),
       width: 120,
-      align: "right",
       renderCell: ({ value }) => formatPrix(value),
     },
+    
     // === Bloc Le Mans ===
     {
       field: "ca_total_le_mans",
@@ -137,7 +161,7 @@ export default function ProductsTable({
     {
       field: "qte_le_mans",
       headerName: headerWithBloc("Qté", "Le Mans", LM_COLOR),
-      width: 65,
+      width: 80,
       renderCell: ({ value }) => (!value || value === 0 ? "-" : value),
     },
     {
@@ -149,7 +173,7 @@ export default function ProductsTable({
     {
       field: "pmp_le_mans",
       headerName: headerWithBloc("PMP (€)", "Le Mans", LM_COLOR),
-      width: 90,
+      width: 100,
       renderCell: ({ value }) => formatPrix(value),
     },
     {
@@ -158,75 +182,88 @@ export default function ProductsTable({
       width: 80,
       renderCell: ({ value }) => (!value || value === 0 ? "-" : value),
     },
+    
     // === Actions ===
     {
       field: "actions",
       headerName: "Actions",
+      sortable: false,
       width: 80,
-      renderCell: ({ row }) => (
-        <Tooltip title="Inspecter">
+      renderCell: (params) => (
+        <Tooltip title="Inspecter produit">
           <IconButton
             onClick={(e) => {
               e.stopPropagation();
-              onInspectProduct(row);
+              handleInspectProduct(params.row.cod_pro);
             }}
+            aria-label="Inspecter ce produit"
+            size="small"
           >
             <SearchIcon fontSize="small" />
           </IconButton>
         </Tooltip>
       ),
     },
-  ], [alertesMap, onInspectProduct]);
+  ], [handleInspectProduct, alertesMap]);
 
-  // === Persistance visibilité colonnes
-  const [colVisibility, setColVisibility] = useState(() =>
-    Object.fromEntries(allColumns.map(c => [c.field, true]))
-  );
+  // Gestion de la visibilité des colonnes
+  const [colVisibility, setColVisibility] = useState(() => {
+    const saved = localStorage.getItem(LOCALSTORAGE_KEY);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error("Erreur chargement visibilité colonnes dashboard:", e);
+      }
+    }
+    return Object.fromEntries(allColumns.map(c => [c.field, true]));
+  });
+
+  // Sauvegarder les changements de visibilité
   useEffect(() => {
-    setColVisibility(old =>
-      Object.fromEntries(allColumns.map(c => [c.field, old?.[c.field] !== false]))
-    );
-    // eslint-disable-next-line
-  }, [allColumns.length]);
+    localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(colVisibility));
+  }, [colVisibility]);
 
-  // === Repérage première colonne visible par bloc (pour bordure dynamique)
-  function getBlocFirstVisibleFields(colVisibility, allColumns, blocFields) {
-    const visibleCols = allColumns
-      .filter(c => colVisibility[c.field] !== false)
-      .map(c => c.field);
-    const firstVisibleSet = new Set();
-    blocFields.forEach(fields => {
-      const first = fields.find(f => visibleCols.includes(f));
-      if (first) firstVisibleSet.add(first);
-    });
-    return firstVisibleSet;
-  }
+  // Repérage des premières colonnes visibles de chaque bloc
   const firstVisibleFields = useMemo(
-    () => getBlocFirstVisibleFields(
-      colVisibility || Object.fromEntries(allColumns.map(c => [c.field, true])),
-      allColumns,
-      blocFields
-    ),
+    () => getBlocFirstVisibleFields(colVisibility, allColumns, blocFields),
     [colVisibility, allColumns, blocFields]
   );
 
-  // === DataGrid - fetchRows
-  const fetchRows = useCallback(
-    async (page, limit) => {
+  // fetchRows stable avec useCallback et dépendances sérialisées
+  const fetchRows = useCallback(async (page, limit) => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log("ProductsTable fetchRows appelé:", { page, limit, filters });
+    }
+    
+    try {
       const res = await fetchDashboardProducts(filters, page, limit);
       setRowCount(res.total || 0);
-      return {
-        rows: res.rows,
+      
+      console.log("ProductsTable fetchRows résultat:", {
         total: res.total,
+        rows_count: res.rows?.length,
+        first_row: res.rows?.[0]
+      });
+      
+      return {
+        rows: res.rows || [],
+        total: res.total || 0,
       };
-    },
-    [filters]
-  );
+    } catch (error) {
+      console.error("Erreur lors du chargement des produits dashboard:", error);
+      setRowCount(0);
+      return { rows: [], total: 0 };
+    }
+  }, [
+    filters?.no_tarif,
+    filters?.cod_pro_list?.join(","),
+    filters?._forceRefresh
+  ]);
 
-  // Patch renderCell pour bordure dynamique (sur 1ère col de chaque bloc)
+  // Application des bordures dynamiques
   const columnsWithBorder = useMemo(() => {
     return allColumns.map(col => {
-      // Bloc Tarif & Le Mans : bordure à gauche sur première colonne visible
       if (
         firstVisibleFields.has(col.field) &&
         (tarifFields.includes(col.field) || leMansFields.includes(col.field))
@@ -239,7 +276,8 @@ export default function ProductsTable({
               pl: 1,
               textAlign: "right",
               width: "100%",
-              display: "flex", alignItems: "center"
+              display: "flex", 
+              alignItems: "center"
             }}>
               {col.renderCell ? col.renderCell(params) : params.value ?? "-"}
             </Box>
@@ -250,20 +288,87 @@ export default function ProductsTable({
     });
   }, [allColumns, firstVisibleFields, tarifFields, leMansFields]);
 
+  // Colonnes visibles finales
+  const visibleColumns = useMemo(() => {
+    return columnsWithBorder.filter(c => colVisibility[c.field] !== false);
+  }, [columnsWithBorder, colVisibility]);
+
+  // Calcul des statistiques d'alertes pour la légende
+  const alerteStats = useMemo(() => {
+    try {
+      if (!alertesMap || typeof alertesMap !== 'object') {
+        return { totalAlertes: 0, alertesActives: 0 };
+      }
+      
+      const totalAlertes = Object.keys(alertesMap).length;
+      const alertesActives = Object.values(alertesMap).filter(alertes => 
+        Array.isArray(alertes) && alertes.length > 0
+      ).length;
+      
+      console.log("ProductsTable DEBUG - Alertes stats:", { totalAlertes, alertesActives, alertesMap });
+      
+      return { totalAlertes, alertesActives };
+    } catch (error) {
+      console.error("Erreur calcul alerteStats:", error);
+      return { totalAlertes: 0, alertesActives: 0 };
+    }
+  }, [alertesMap]);
+
+  // Ne pas rendre le tableau si on n'a pas de filtres valides
+  if (!filters?.no_tarif || !filters?.cod_pro_list?.length) {
+    console.log("ProductsTable - Pas de filtres valides:", { filters });
+    return (
+      <Box sx={{ p: 2, textAlign: "center" }}>
+        <Typography variant="body2" color="text.secondary">
+          Veuillez sélectionner un tarif et des produits pour afficher le tableau.
+        </Typography>
+      </Box>
+    );
+  }
+
+  console.log("ProductsTable - Rendu du tableau avec:", {
+    filters: filters,
+    resetKey: resetKey,
+    visibleColumns: visibleColumns.length,
+    alerteStats: alerteStats
+  });
+
   return (
     <Box>
       <Box sx={{ px: 2, py: 2 }}>
         <Typography variant="subtitle1">
-          🧾 Produits affichés – <strong>{rowCount}</strong> ligne(s)
+          Produits affichés – <strong>{rowCount}</strong> ligne(s)
+          {alerteStats.alertesActives > 0 && (
+            <span style={{ color: "#d32f2f", marginLeft: "8px" }}>
+              • {alerteStats.alertesActives} avec alertes
+            </span>
+          )}
         </Typography>
-        <Box sx={{ display: "flex", gap: 2, mb: 2, alignItems: "center" }}>
-          <Box sx={{ width: 16, height: 16, bgcolor: "#ffe0e0", borderRadius: 0.5 }} />
-          <Typography variant="body2">Prix de vente anormal</Typography>
-          <Box sx={{ width: 16, height: 16, bgcolor: "#ffe0e0", borderRadius: 0.5 }} />
-          <Typography variant="body2">Stock incohérent</Typography>
-          <Box sx={{ width: 16, height: 16, bgcolor: "#fff8dc", borderRadius: 0.5 }} />
-          <Typography variant="body2">Produit sélectionné</Typography>
+        
+        <Box sx={{ display: "flex", gap: 2, mb: 2, alignItems: "center", flexWrap: "wrap" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Box sx={{ width: 16, height: 16, bgcolor: "#ffe0e0", borderRadius: 0.5 }} />
+            <Typography variant="body2">Prix anormal</Typography>
+          </Box>
+          
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Box sx={{ width: 16, height: 16, bgcolor: "#fff3cd", borderRadius: 0.5 }} />
+            <Typography variant="body2">Stock incohérent</Typography>
+          </Box>
+          
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Box sx={{ width: 16, height: 16, bgcolor: "#fff8dc", borderRadius: 0.5 }} />
+            <Typography variant="body2">Produit sélectionné</Typography>
+          </Box>
+          
+          {alerteStats.alertesActives > 0 && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Box sx={{ width: 16, height: 16, bgcolor: "#ffebee", borderRadius: 0.5, border: "1px solid #f44336" }} />
+              <Typography variant="body2">Avec alertes actives</Typography>
+            </Box>
+          )}
         </Box>
+        
         {/* Picker Colonnes */}
         <Box sx={{ mb: 2 }}>
           <ColumnPicker
@@ -274,27 +379,19 @@ export default function ProductsTable({
           />
         </Box>
       </Box>
-      <PaginatedDataGrid
-        key={resetKey} // <- pour forcer le reset complet si le composant est recréé
-        resetKey={resetKey} // <- pour forcer le reset du cache interne (déjà géré dans PaginatedDataGrid)
-        columns={columnsWithBorder.filter(c => colVisibility[c.field])}
+      
+      <DashboardDataGrid
+        key={resetKey}
+        columns={visibleColumns}
         fetchRows={fetchRows}
+        resetKey={resetKey}
         getRowId={(row) => row.cod_pro}
-        getRowClassName={(params) => {
-          if (String(params.row.cod_pro) === String(clickedCodPro)) return "highlighted-row";
-          if (!clickedCodPro && String(params.row.cod_pro) === String(selectedCodPro)) return "highlighted-row";
-          return "";
-        }}
-        onRowClick={(params) => {
-          if (String(clickedCodPro) === String(params.row.cod_pro)) {
-            setClickedCodPro(null); // Déselectionne si déjà sélectionné
-          } else {
-            setClickedCodPro(params.row.cod_pro);
-          }
-        }}
+        onRowClick={handleRowClick}
+        getRowClassName={getRowClassName}
+        selectedCodPro={selectedCodPro}
+        clickedCodPro={clickedCodPro}
         initialPageSize={20}
       />
-
     </Box>
   );
 }

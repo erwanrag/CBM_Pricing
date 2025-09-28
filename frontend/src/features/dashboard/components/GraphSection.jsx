@@ -1,80 +1,158 @@
-// src/features/dashboard/components/GraphSection.jsx
-import React, { useState, useMemo } from "react";
-import { Box, Typography, FormControl, InputLabel, Select, MenuItem } from "@mui/material";
+// 📁 src/features/dashboard/components/GraphSection.jsx - Version optimisée
+import React, { useState, useMemo, useCallback } from "react";
+import { Box, Typography, FormControl, InputLabel, Select, MenuItem, Skeleton } from "@mui/material";
 import GraphHistorique from "./GraphHistorique";
 import GraphRepartition from "./GraphRepartition";
 
-export default function GraphSection({ historique = [], produits = [], selectedCodPro }) {
+export default function GraphSection({ 
+  selectedCodPro, 
+  filters, 
+  historiqueData, 
+  historiqueLoading,
+  produitsData = [] 
+}) {
   const [xAxis, setXAxis] = useState("qualite");
   const [yAxis, setYAxis] = useState("ca_total");
   const [mode, setMode] = useState("valeurs");
 
+  // Gestionnaires d'événements stables
+  const handleXAxisChange = useCallback((e) => {
+    setXAxis(e.target.value);
+  }, []);
+
+  const handleYAxisChange = useCallback((e) => {
+    setYAxis(e.target.value);
+  }, []);
+
+  const handleModeChange = useCallback((newMode) => {
+    setMode(newMode);
+  }, []);
+
+  // Données historiques filtrées et agrégées (mémorisées)
   const filteredHistorique = useMemo(() => {
-    if (selectedCodPro) {
-      return historique.filter((item) => item.cod_pro === selectedCodPro);
+    if (!historiqueData || !Array.isArray(historiqueData) || historiqueData.length === 0) {
+      return [];
     }
-    const aggregation = historique.reduce((acc, item) => {
-      const key = item.periode;
-      if (!acc[key]) {
-        acc[key] = {
-          periode: item.periode,
-          ca_mensuel: 0,
-          marge_mensuelle: 0,
-          qte_mensuelle: 0,
-        };
-      }
-      acc[key].ca_mensuel += item.ca_mensuel;
-      acc[key].marge_mensuelle += item.marge_mensuelle;
-      acc[key].qte_mensuelle += item.qte_mensuelle;
-      return acc;
-    }, {});
 
-    return Object.values(aggregation).map((item) => ({
-      ...item,
-      marge_mensuelle_pourcentage:
-        item.ca_mensuel === 0
-          ? 0
-          : Math.round((item.marge_mensuelle / item.ca_mensuel) * 10000) / 100,
-    }));
-  }, [historique, selectedCodPro]);
+    let result = [];
 
-  // ==== Titre dynamique ====
-  const clickedRefint = produits.find((p) => String(p.cod_pro) === String(selectedCodPro))?.refint;
-  const titreHistorique = selectedCodPro
-    ? `Évolution CA / Marge / Qté – Produit ${clickedRefint ? `${clickedRefint}` : selectedCodPro}`
-    : "Évolution CA / Marge / Qté – 12 derniers mois";
+    if (selectedCodPro) {
+      // Données pour un produit spécifique
+      result = historiqueData
+        .filter((item) => String(item.cod_pro) === String(selectedCodPro))
+        .map((item) => ({
+          ...item,
+          // Calcul sécurisé du pourcentage de marge
+          marge_mensuelle_pourcentage: item.ca_mensuel && item.ca_mensuel > 0
+            ? Math.round((item.marge_mensuelle / item.ca_mensuel) * 10000) / 100
+            : 0,
+        }));
+    } else {
+      // Agrégation globale par période
+      const aggregation = historiqueData.reduce((acc, item) => {
+        const key = item.periode;
+        if (!key) return acc; // Skip les entrées sans période
+        
+        if (!acc[key]) {
+          acc[key] = {
+            periode: key,
+            ca_mensuel: 0,
+            marge_mensuelle: 0,
+            qte_mensuelle: 0,
+          };
+        }
+        
+        acc[key].ca_mensuel += Number(item.ca_mensuel) || 0;
+        acc[key].marge_mensuelle += Number(item.marge_mensuelle) || 0;
+        acc[key].qte_mensuelle += Number(item.qte_mensuelle) || 0;
+        
+        return acc;
+      }, {});
+
+      result = Object.values(aggregation)
+        .map((item) => ({
+          ...item,
+          marge_mensuelle_pourcentage: item.ca_mensuel > 0
+            ? Math.round((item.marge_mensuelle / item.ca_mensuel) * 10000) / 100
+            : 0,
+        }))
+        .sort((a, b) => {
+          // Tri chronologique sécurisé
+          try {
+            return new Date(a.periode) - new Date(b.periode);
+          } catch (e) {
+            return a.periode.localeCompare(b.periode);
+          }
+        });
+    }
+
+    return result;
+  }, [historiqueData, selectedCodPro]);
+
+  // Titre dynamique pour l'historique (mémorisé)
+  const titreHistorique = useMemo(() => {
+    if (selectedCodPro) {
+      const produitSelectionne = produitsData.find(
+        (p) => String(p.cod_pro) === String(selectedCodPro)
+      );
+      const refint = produitSelectionne?.refint;
+      return `Évolution CA / Marge / Qté – Produit ${refint || selectedCodPro}`;
+    }
+    return "Évolution CA / Marge / Qté – 12 derniers mois";
+  }, [selectedCodPro, produitsData]);
+
+  // Options pour les sélecteurs (mémorisées)
+  const xAxisOptions = useMemo(() => [
+    { value: "qualite", label: "Qualité" },
+    { value: "refint", label: "Référence" },
+    { value: "famille", label: "Famille" },
+    { value: "statut", label: "Statut" },
+  ], []);
+
+  const yAxisOptions = useMemo(() => [
+    { value: "ca_total", label: "CA Total" },
+    { value: "marge_total", label: "Marge Total" },
+    { value: "stock_total", label: "Stock Total" },
+    { value: "qte_vendue", label: "Qté Vendue" },
+  ], []);
 
   return (
     <Box mt={4}>
       <Box
         display="flex"
-        flexDirection={{ xs: "column", md: "row" }}
+        flexDirection={{ xs: "column", lg: "row" }}
         gap={3}
         width="100%"
       >
-        {/* Graph historique */}
+        {/* Graphique historique */}
         <Box
-          flex={{ xs: 1, md: 1.4 }}
+          flex={{ xs: 1, lg: 1.4 }}
           minWidth={340}
           bgcolor="#fafaff"
           borderRadius={2}
           p={2}
           boxShadow={1}
-          mr={{ md: 2, xs: 0 }}
         >
           <Typography variant="h6" gutterBottom sx={{ pl: 1, pb: 1 }}>
             {titreHistorique}
           </Typography>
-          <GraphHistorique
-            data={filteredHistorique}
-            mode={mode}
-            onModeChange={setMode}
-          />
+          
+          {historiqueLoading ? (
+            <Box sx={{ width: "100%", height: 300 }}>
+              <Skeleton variant="rectangular" width="100%" height="100%" />
+            </Box>
+          ) : (
+            <GraphHistorique
+              data={filteredHistorique}
+              mode={mode}
+              onModeChange={handleModeChange}
+            />
+          )}
         </Box>
 
-        {/* Graph répartition */}
+        {/* Graphique répartition */}
         <Box
-          flex={{ xs: 1, md: 1 }}
+          flex={{ xs: 1, lg: 1 }}
           minWidth={340}
           bgcolor="#fafaff"
           borderRadius={2}
@@ -82,45 +160,45 @@ export default function GraphSection({ historique = [], produits = [], selectedC
           boxShadow={1}
         >
           <Typography variant="h6" gutterBottom>
-            Répartition CA / Marge / Stock par Famille ou Qualité
+            Répartition CA / Marge / Stock
           </Typography>
 
           <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mb: 2 }}>
-            <Box sx={{ flex: "1 1 180px", minWidth: 180 }}>
-              <FormControl fullWidth>
+            <Box sx={{ flex: "1 1 140px", minWidth: 140 }}>
+              <FormControl fullWidth size="small">
                 <InputLabel>Axe X</InputLabel>
-                <Select value={xAxis} onChange={(e) => setXAxis(e.target.value)}>
-                  <MenuItem value="qualite">Qualité</MenuItem>
-                  <MenuItem value="refint">Référence Interne</MenuItem>
-                  <MenuItem value="famille">Famille</MenuItem>
+                <Select value={xAxis} onChange={handleXAxisChange} label="Axe X">
+                  {xAxisOptions.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
                 </Select>
               </FormControl>
             </Box>
-            <Box sx={{ flex: "1 1 180px", minWidth: 180 }}>
-              <FormControl fullWidth>
+            
+            <Box sx={{ flex: "1 1 140px", minWidth: 140 }}>
+              <FormControl fullWidth size="small">
                 <InputLabel>Axe Y</InputLabel>
-                <Select value={yAxis} onChange={(e) => setYAxis(e.target.value)}>
-                  <MenuItem value="ca_total">CA Total</MenuItem>
-                  <MenuItem value="marge_total">Marge Totale</MenuItem>
-                  <MenuItem value="stock">Stock</MenuItem>
+                <Select value={yAxis} onChange={handleYAxisChange} label="Axe Y">
+                  {yAxisOptions.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
                 </Select>
               </FormControl>
             </Box>
           </Box>
 
           <GraphRepartition
-            produits={produits}
+            produits={produitsData}
             xAxis={xAxis}
             yAxis={yAxis}
-            onChangeAxis={(key, value) => {
-              if (key === "xAxis") setXAxis(value);
-              if (key === "yAxis") setYAxis(value);
-            }}
+            selectedCodPro={selectedCodPro}
           />
         </Box>
       </Box>
     </Box>
   );
 }
-
-

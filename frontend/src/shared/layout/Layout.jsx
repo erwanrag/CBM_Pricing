@@ -1,4 +1,4 @@
-// 📁 src/shared/layout/Layout.jsx
+// 📁 src/shared/layout/Layout.jsx - CORRIGÉ
 import React, { useState } from "react";
 import { Box } from "@mui/material";
 import Sidebar from "./Sidebar";
@@ -13,9 +13,16 @@ import { LAYOUT } from "@/shared/theme/theme";
 import ContentContainer from "./ContentContainer";
 
 const Layout = () => {
-  const [filters, setFilters] = useState(null);
+  // CORRECTION: Initialiser avec un objet vide au lieu de null
+  const [filters, setFilters] = useState({});
   const [filterType, setFilterType] = useState(null);
+  
   useAutoLogout();
+
+  // Debug pour vérifier les changements de filtres
+  if (process.env.NODE_ENV === 'development') {
+    console.log("Layout filters changed:", filters);
+  }
 
   return (
     <SidebarProvider>
@@ -53,7 +60,6 @@ const Layout = () => {
         />
       </LayoutContext.Provider>
     </SidebarProvider>
-
   );
 };
 

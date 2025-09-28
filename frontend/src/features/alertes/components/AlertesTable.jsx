@@ -1,9 +1,9 @@
-// 📁 src/features/alertes/AlertesTable.jsx
-import React, { useCallback, useMemo, useState, useEffect } from "react";
+// 📁 src/features/alertes/components/AlertesTable.jsx
+import React, { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import { Box, IconButton, Tooltip } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import BarChartIcon from "@mui/icons-material/BarChart";
-import PaginatedDataGrid from "@/shared/components/tables/PaginatedDataGrid";
+import AlertesDataGrid from "./AlertesDataGrid";
 import { getAlertesSummary } from "@/api";
 import { useNavigate } from "react-router-dom";
 import BadgeQualite from "@/shared/components/badges/BadgeQualite";
@@ -18,7 +18,7 @@ const BORDER_GRAY = "#e5e7eb";
 const LM_COLOR = "#3B82F6";
 const TARIF_COLOR = "#FBBF24";
 
-// Balise header colorée par bloc (même design que Compare)
+// Balise header colorée par bloc
 const headerWithBloc = (label, blocLabel, color) => (
   <Box sx={{
     display: "flex", flexDirection: "column", alignItems: "center", fontWeight: "bold"
@@ -33,20 +33,50 @@ const headerWithBloc = (label, blocLabel, color) => (
   </Box>
 );
 
-export default function AlertesTable({ filters, onInspect, onTotalChange }) {
+// Fonction utilitaire pour les bordures
+function getBlocFirstVisibleFields(colVisibility, allColumns, blocFields) {
+  const visibleCols = allColumns
+    .filter(c => colVisibility[c.field] !== false)
+    .map(c => c.field);
+  const firstVisibleSet = new Set();
+  blocFields.forEach(fields => {
+    const first = fields.find(f => visibleCols.includes(f));
+    if (first) firstVisibleSet.add(first);
+  });
+  return firstVisibleSet;
+}
+
+export default function AlertesTable({ filters, onInspect, onTotalChange, onDashboard }) {
   const navigate = useNavigate();
   const pageSize = 20;
 
-  // Champs des blocs pour bordure dynamique
-  const tarifFields = [
-    "no_tarif", "ca_total", "px_vente", "marge_relative"
-  ];
-  const leMansFields = [
-    "ca_LM", "qte_LM", "marge_LM", "pmp_LM", "stock_LM"
-  ];
-  const blocFields = [tarifFields, leMansFields];
+  // FIXE: Refs pour les callbacks instables
+  const onTotalChangeRef = useRef(onTotalChange);
+  const onInspectRef = useRef(onInspect);
+  const onDashboardRef = useRef(onDashboard);
 
-  // Colonnes
+  // Maintenir les refs à jour
+  useEffect(() => {
+    onTotalChangeRef.current = onTotalChange;
+    onInspectRef.current = onInspect;
+    onDashboardRef.current = onDashboard;
+  }, [onTotalChange, onInspect, onDashboard]);
+
+  // Champs des blocs pour bordure dynamique (constants)
+  const tarifFields = useMemo(() => ["no_tarif", "ca_total", "px_vente", "marge_relative"], []);
+  const leMansFields = useMemo(() => ["ca_LM", "qte_LM", "marge_LM", "pmp_LM", "stock_LM"], []);
+  const blocFields = useMemo(() => [tarifFields, leMansFields], [tarifFields, leMansFields]);
+
+  // Gestionnaires d'événements stables
+  const handleInspect = useCallback((row) => {
+    onInspectRef.current?.(row);
+  }, []);
+
+  const handleDashboard = useCallback((row) => {
+    onDashboardRef.current?.(row);
+  }, []);
+
+  // Définition des colonnes
   const allColumns = useMemo(() => [
     { field: "cod_pro", headerName: "Code Produit", width: 80 },
     { field: "refint", headerName: "Référence", width: 100 },
@@ -67,7 +97,7 @@ export default function AlertesTable({ filters, onInspect, onTotalChange }) {
       field: "px_achat", headerName: "Px Achat (€)", width: 100,
       renderCell: ({ value }) => (value != null ? formatPrix(value) : "-")
     },
-    // --- Colonnes bloc Tarif ---
+    // === Bloc Tarif ===
     {
       field: "no_tarif", headerName: headerWithBloc("Tarif", "Tarif", TARIF_COLOR), width: 70,
       renderCell: ({ value }) => (!value ? "-" : value)
@@ -82,9 +112,9 @@ export default function AlertesTable({ filters, onInspect, onTotalChange }) {
     },
     {
       field: "marge_relative", headerName: headerWithBloc("Marge %", "Tarif", TARIF_COLOR), width: 80,
-      renderCell: ({ value }) => <MargeColorBox value={value * 100} size="small" />
+      renderCell: ({ value }) => <MargeColorBox value={value } size="small" />
     },
-    // --- Colonnes bloc Le Mans ---
+    // === Bloc Le Mans ===
     {
       field: "ca_LM", headerName: headerWithBloc("CA (€)", "Le Mans", LM_COLOR), width: 120,
       renderCell: ({ value }) => formatPrix(value)
@@ -105,7 +135,7 @@ export default function AlertesTable({ filters, onInspect, onTotalChange }) {
       field: "stock_LM", headerName: headerWithBloc("Stock", "Le Mans", LM_COLOR), width: 80,
       renderCell: ({ value }) => (!value || value === 0 ? "-" : value)
     },
-    // --- Actions ---
+    // === Actions ===
     {
       field: "actions",
       headerName: "Actions",
@@ -115,7 +145,7 @@ export default function AlertesTable({ filters, onInspect, onTotalChange }) {
         <Box display="flex" gap={1}>
           <Tooltip title="Voir alertes">
             <IconButton
-              onClick={() => onInspect(params.row)}
+              onClick={() => handleInspect(params.row)}
               aria-label="Voir alertes détaillées"
               size="small"
             >
@@ -125,12 +155,7 @@ export default function AlertesTable({ filters, onInspect, onTotalChange }) {
           <Tooltip title="Voir dashboard">
             <IconButton
               aria-label="Voir ce produit dans le dashboard"
-              onClick={() => {
-                const { cod_pro, no_tarif, grouping_crn, refint } = params.row;
-                navigate(
-                  `/dashboard?cod_pro=${cod_pro}&refint=${encodeURIComponent(refint)}&no_tarif=${no_tarif}&grouping_crn=${grouping_crn}`
-                );
-              }}
+              onClick={() => handleDashboard(params.row)}
               size="small"
             >
               <BarChartIcon fontSize="small" />
@@ -139,11 +164,10 @@ export default function AlertesTable({ filters, onInspect, onTotalChange }) {
         </Box>
       ),
     },
-  ], [navigate, onInspect]);
+  ], [handleInspect, handleDashboard]);
 
-  // Visibilité colonnes (persistée)
+  // Gestion de la visibilité des colonnes
   const [colVisibility, setColVisibility] = useState(() => {
-    // Charger depuis localStorage si disponible
     const saved = localStorage.getItem(LOCALSTORAGE_KEY);
     if (saved) {
       try {
@@ -152,7 +176,6 @@ export default function AlertesTable({ filters, onInspect, onTotalChange }) {
         console.error("Erreur chargement visibilité colonnes:", e);
       }
     }
-    // Par défaut, toutes les colonnes visibles
     return Object.fromEntries(allColumns.map(c => [c.field, true]));
   });
 
@@ -161,45 +184,20 @@ export default function AlertesTable({ filters, onInspect, onTotalChange }) {
     localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(colVisibility));
   }, [colVisibility]);
 
-  // RESET unique pour DataGrid - NE PAS inclure colVisibility qui change souvent
-  const resetKey = useMemo(
-    () => JSON.stringify({
-      filters: {
-        code_regle: filters.code_regle,
-        cod_pro: filters.cod_pro,
-        no_tarif: filters.no_tarif,
-        ref_crn: filters.ref_crn,
-        grouping_crn: filters.grouping_crn,
-        qualite: filters.qualite
-      }
-    }),
-    [filters.code_regle, filters.cod_pro, filters.no_tarif, filters.ref_crn, filters.grouping_crn, filters.qualite]
-  );
-
-  // Repérage des premières colonnes visibles de chaque bloc (dynamique)
-  function getBlocFirstVisibleFields(colVisibility, allColumns, blocFields) {
-    const visibleCols = allColumns
-      .filter(c => colVisibility[c.field] !== false)
-      .map(c => c.field);
-    const firstVisibleSet = new Set();
-    blocFields.forEach(fields => {
-      const first = fields.find(f => visibleCols.includes(f));
-      if (first) firstVisibleSet.add(first);
-    });
-    return firstVisibleSet;
-  }
-  
+  // Repérage des premières colonnes visibles de chaque bloc
   const firstVisibleFields = useMemo(
     () => getBlocFirstVisibleFields(colVisibility, allColumns, blocFields),
-    [colVisibility, allColumns]
+    [colVisibility, allColumns, blocFields]
   );
 
-  // Récupération des rows (live)
+  // FIXE: fetchRows stable sans dépendances problématiques
   const fetchRows = useCallback(async (page, limit) => {
+    console.log("AlertesTable fetchRows appelé:", { page, limit, filters });
+    
     try {
       const res = await getAlertesSummary({
         ...filters,
-        page: page + 1, // Le backend attend page 1-based
+        page: page + 1, // Backend attend 1-based
         limit,
         sort_by: "marge_relative",
         sort_dir: "desc",
@@ -209,28 +207,23 @@ export default function AlertesTable({ filters, onInspect, onTotalChange }) {
         (row) => row != null && row.cod_pro !== undefined && row.no_tarif !== undefined
       );
 
-      // Notifier le composant parent du total
-      if (onTotalChange) {
-        onTotalChange(res.total ?? 0);
-      }
+      // Notifier le parent du total via ref
+      onTotalChangeRef.current?.(res.total ?? 0);
 
       return {
         rows: validRows,
         total: res.total || 0,
       };
     } catch (error) {
-      console.error("❌ Erreur lors du chargement des alertes :", error);
-      if (onTotalChange) {
-        onTotalChange(0);
-      }
+      console.error("Erreur lors du chargement des alertes :", error);
+      onTotalChangeRef.current?.(0);
       return { rows: [], total: 0 };
     }
-  }, [filters, onTotalChange]);
+  }, [JSON.stringify(filters)]); // Seuls les filtres comme dépendance
 
-  // Patch renderCell pour bordure dynamique
+  // Application des bordures dynamiques
   const columnsWithBorder = useMemo(() => {
     return allColumns.map(col => {
-      // Bordure grise à gauche sur première colonne visible du bloc
       if (
         firstVisibleFields.has(col.field) &&
         (tarifFields.includes(col.field) || leMansFields.includes(col.field))
@@ -253,16 +246,21 @@ export default function AlertesTable({ filters, onInspect, onTotalChange }) {
       }
       return col;
     });
-  }, [allColumns, firstVisibleFields]);
+  }, [allColumns, firstVisibleFields, tarifFields, leMansFields]); // FIXE: deps complètes
 
-  // Filtrer les colonnes visibles
+  // Colonnes visibles finales
   const visibleColumns = useMemo(() => {
     return columnsWithBorder.filter(c => colVisibility[c.field] !== false);
   }, [columnsWithBorder, colVisibility]);
 
+  // Reset key stable basé sur les filtres essentiels
+  const resetKey = useMemo(() => {
+    return JSON.stringify(filters);
+  }, [filters]);
+
   return (
     <Box>
-      <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
+      <Box sx={{ display: "flex", gap: 2, mb: 2, alignItems: "center" }}>
         <ExportAlertesButton filters={filters} />
         <ColumnPicker
           allColumns={allColumns}
@@ -271,18 +269,13 @@ export default function AlertesTable({ filters, onInspect, onTotalChange }) {
           storageKey={LOCALSTORAGE_KEY}
         />
       </Box>
-      <PaginatedDataGrid
+      
+      <AlertesDataGrid
         key={resetKey}
-        resetKey={resetKey}
-        mode="server"
         columns={visibleColumns}
         fetchRows={fetchRows}
         initialPageSize={pageSize}
-        pageSizeOptions={[20, 50, 100]}
         getRowId={(row) => row ? `${row.cod_pro}-${row.no_tarif}` : `empty-${Math.random()}`}
-        filterModel={{ items: [], quickFilterValues: [] }}
-        onFilterChange={() => { }}
-        sortingMode="server"
       />
     </Box>
   );

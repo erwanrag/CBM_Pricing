@@ -18,7 +18,8 @@ class DashboardKPIItem(BaseModel):
     refint: str
     produits_actifs: int
     ca_total: float
-    marge_moyenne: float
+    marge_absolue: float  
+    marge_moyenne: float  
     alertes_actives: int
 
 class DashboardKPIResponse(BaseModel):

@@ -8,7 +8,18 @@ from app.schemas.logs.log_modification_schema import LogModificationEntry
 from app.common.constants import REDIS_TTL_SHORT
 from app.common.logger import logger
 import json
+import decimal
+import datetime
 
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, decimal.Decimal):
+            return float(obj)
+        elif isinstance(obj, datetime.datetime):
+            return obj.isoformat()
+        elif isinstance(obj, datetime.date):
+            return obj.isoformat()
+        return super(DecimalEncoder, self).default(obj)
 
 async def log_modifications_in_db(entries: list[LogModificationEntry], db: AsyncSession, user_email: str):
     for entry in entries:
@@ -104,7 +115,7 @@ async def fetch_modification_history_paginated(
 
     result = {"total": total, "rows": rows}
     try:
-        await redis_client.set(redis_key, json.dumps(result), ex=REDIS_TTL_SHORT)
+        await redis_client.set(redis_key, json.dumps(result, cls=DecimalEncoder), ex=REDIS_TTL_SHORT)
     except Exception:
         logger.exception("[Redis] modif_log set failed")
 
