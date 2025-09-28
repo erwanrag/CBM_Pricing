@@ -1,4 +1,4 @@
-# backend/app/services/ai/pricing_analysis_service.py
+# backend/app/services/ai/pricing_analysis_service.py - Version corrigée avec vrais noms de tables CBM
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Any, Optional, Tuple
@@ -88,170 +88,200 @@ class PricingAIAnalyzer:
             }
     
     async def _fetch_pricing_data(self, db: AsyncSession, no_tarif: int = None) -> pd.DataFrame:
-        """Récupère les données de pricing pour l'analyse"""
-        tarif_filter = f"AND pv.no_tarif = {no_tarif}" if no_tarif else ""
+        """Récupère les données de pricing pour l'analyse - AVEC LES VRAIS NOMS DE TABLES CBM"""
+        tarif_filter = f"AND p.no_tarif = {no_tarif}" if no_tarif else ""
         
+        # Requête adaptée aux vraies tables CBM_DATA
         query = text(f"""
-            SELECT 
+            SELECT TOP 500
                 p.cod_pro,
                 p.refint,
-                p.nom_pro,
                 p.qualite,
                 p.famille,
                 p.s_famille,
                 p.no_tarif,
-                pv.prix_vente,
-                pa.prix_achat,
-                CASE 
-                    WHEN pa.prix_achat > 0 
-                    THEN (pv.prix_vente - pa.prix_achat) / pa.prix_achat * 100
-                    ELSE NULL 
-                END as marge_percent,
-                s.stock_actuel,
-                COALESCE(v.qte_vendue_12m, 0) as qte_vendue_12m,
-                COALESCE(v.ca_12m, 0) as ca_12m,
-                CASE 
-                    WHEN v.qte_vendue_12m > 0 
-                    THEN pv.prix_vente * v.qte_vendue_12m 
-                    ELSE 0 
-                END as ca_potentiel
+                p.statut,
+                
+                -- Prix depuis Comparatif_Tarif_Pivot (si existe)
+                COALESCE(ctp.prix_achat, 0) as prix_achat,
+                
+                -- Stocks depuis les données LM
+                COALESCE(ctp.stock_LM, 0) as stock_actuel,
+                COALESCE(ctp.pmp_LM, 0) as pmp_LM,
+                
+                -- Ventes LM
+                COALESCE(ctp.qte_LM, 0) as qte_vendue_12m,
+                COALESCE(ctp.ca_LM, 0) as ca_12m,
+                COALESCE(ctp.marge_LM, 0) as marge_percent
+                
             FROM CBM_DATA.Pricing.Dimensions_Produit p
-            LEFT JOIN CBM_DATA.Pricing.Prix_Vente pv ON p.cod_pro = pv.cod_pro AND p.no_tarif = pv.no_tarif
-            LEFT JOIN CBM_DATA.Pricing.Prix_Achat pa ON p.cod_pro = pa.cod_pro
-            LEFT JOIN CBM_DATA.Pricing.Stocks s ON p.cod_pro = s.cod_pro
-            LEFT JOIN (
-                SELECT 
-                    cod_pro,
-                    SUM(quantite) as qte_vendue_12m,
-                    SUM(chiffre_affaires) as ca_12m
-                FROM CBM_DATA.Pricing.Ventes
-                WHERE date_vente >= DATEADD(month, -12, GETDATE())
-                GROUP BY cod_pro
-            ) v ON p.cod_pro = v.cod_pro
-            WHERE pv.prix_vente > 0 
-            AND pa.prix_achat > 0
+            LEFT JOIN CBM_DATA.Pricing.Comparatif_Tarif_Pivot ctp 
+                ON p.cod_pro = ctp.cod_pro
+            WHERE p.statut = 1
             {tarif_filter}
-            AND p.statut = 1
+            AND (ctp.prix_achat > 0 OR ctp.stock_LM > 0 OR ctp.qte_LM > 0)
+            ORDER BY p.cod_pro
         """)
         
         result = await db.execute(query)
         rows = result.fetchall()
         
+        if not rows:
+            # Fallback avec une requête plus simple
+            logger.warning("Aucune donnée dans Comparatif_Tarif_Pivot, fallback sur Dimensions_Produit")
+            
+            simple_query = text(f"""
+                SELECT TOP 100
+                    cod_pro,
+                    refint,
+                    qualite,
+                    famille,
+                    s_famille, 
+                    no_tarif,
+                    statut,
+                    0 as prix_achat,
+                    0 as stock_actuel,
+                    0 as pmp_LM,
+                    0 as qte_vendue_12m,
+                    0 as ca_12m,
+                    0 as marge_percent
+                FROM CBM_DATA.Pricing.Dimensions_Produit
+                WHERE statut = 1
+                {tarif_filter}
+                ORDER BY cod_pro
+            """)
+            
+            result = await db.execute(simple_query)
+            rows = result.fetchall()
+        
         return pd.DataFrame([dict(row._mapping) for row in rows])
     
     async def _prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Prépare les features pour l'analyse ML"""
+        """Prépare les features pour l'analyse ML - Version simplifiée"""
         features = df.copy()
         
-        # Features de base
-        features['log_prix_vente'] = np.log1p(features['prix_vente'].fillna(0))
-        features['log_prix_achat'] = np.log1p(features['prix_achat'].fillna(0))
-        features['log_stock'] = np.log1p(features['stock_actuel'].fillna(0))
-        features['log_ventes'] = np.log1p(features['qte_vendue_12m'].fillna(0))
+        # Features de base (avec gestion des valeurs nulles)
+        features['prix_achat'] = pd.to_numeric(features['prix_achat'], errors='coerce').fillna(0)
+        features['stock_actuel'] = pd.to_numeric(features['stock_actuel'], errors='coerce').fillna(0)
+        features['qte_vendue_12m'] = pd.to_numeric(features['qte_vendue_12m'], errors='coerce').fillna(0)
+        features['ca_12m'] = pd.to_numeric(features['ca_12m'], errors='coerce').fillna(0)
+        features['marge_percent'] = pd.to_numeric(features['marge_percent'], errors='coerce').fillna(0)
         
-        # Ratios et features dérivées
-        features['ratio_prix_achat_vente'] = features['prix_achat'] / features['prix_vente'].replace(0, np.nan)
-        features['rotation_stock'] = features['qte_vendue_12m'] / features['stock_actuel'].replace(0, np.nan)
-        features['prix_unitaire_moyen'] = features['ca_12m'] / features['qte_vendue_12m'].replace(0, np.nan)
+        # Features transformées
+        features['log_prix'] = np.log1p(features['prix_achat'])
+        features['log_stock'] = np.log1p(features['stock_actuel'])
+        features['log_ventes'] = np.log1p(features['qte_vendue_12m'])
+        features['log_ca'] = np.log1p(features['ca_12m'])
         
         # Encoding qualité
         qualite_mapping = {'OE': 4, 'OEM': 3, 'PMQ': 2, 'PMV': 1}
         features['qualite_encoded'] = features['qualite'].map(qualite_mapping).fillna(0)
         
-        # Features par famille (moyennes de groupe)
-        famille_stats = features.groupby('famille').agg({
-            'prix_vente': 'mean',
-            'marge_percent': 'mean',
-            'qte_vendue_12m': 'mean'
-        }).add_suffix('_famille_avg')
-        
-        features = features.merge(
-            famille_stats, 
-            left_on='famille', 
-            right_index=True, 
-            how='left'
+        # Ratios (avec gestion division par zéro)
+        features['rotation_stock'] = np.where(
+            features['stock_actuel'] > 0,
+            features['qte_vendue_12m'] / features['stock_actuel'],
+            0
         )
         
-        # Écarts par rapport aux moyennes famille
-        features['ecart_prix_famille'] = (
-            features['prix_vente'] - features['prix_vente_famille_avg']
-        ) / features['prix_vente_famille_avg'].replace(0, np.nan)
-        
-        features['ecart_marge_famille'] = (
-            features['marge_percent'] - features['marge_percent_famille_avg']
-        )
+        # Features par famille (si assez de données)
+        if len(features) > 10:
+            try:
+                famille_stats = features.groupby('famille').agg({
+                    'prix_achat': 'mean',
+                    'marge_percent': 'mean'
+                }).add_suffix('_famille_avg')
+                
+                features = features.merge(
+                    famille_stats, 
+                    left_on='famille', 
+                    right_index=True, 
+                    how='left'
+                )
+                
+                # Écarts par rapport aux moyennes famille
+                features['ecart_prix_famille'] = np.where(
+                    features['prix_achat_famille_avg'] > 0,
+                    (features['prix_achat'] - features['prix_achat_famille_avg']) / features['prix_achat_famille_avg'],
+                    0
+                )
+            except Exception as e:
+                logger.warning(f"Erreur calcul stats famille: {e}")
+                features['ecart_prix_famille'] = 0
+        else:
+            features['ecart_prix_famille'] = 0
         
         # Sélection des features numériques pour ML
         numeric_features = [
-            'log_prix_vente', 'log_prix_achat', 'log_stock', 'log_ventes',
-            'marge_percent', 'ratio_prix_achat_vente', 'rotation_stock',
-            'qualite_encoded', 'ecart_prix_famille', 'ecart_marge_famille'
+            'log_prix', 'log_stock', 'log_ventes', 'log_ca',
+            'marge_percent', 'rotation_stock', 'qualite_encoded', 'ecart_prix_famille'
         ]
         
         ml_features = features[numeric_features].fillna(0)
         
-        # Normalisation
-        ml_features_scaled = pd.DataFrame(
-            self.scaler.fit_transform(ml_features),
-            columns=ml_features.columns,
-            index=ml_features.index
-        )
+        # Normalisation (avec gestion des valeurs constantes)
+        try:
+            ml_features_scaled = pd.DataFrame(
+                self.scaler.fit_transform(ml_features),
+                columns=ml_features.columns,
+                index=ml_features.index
+            )
+        except Exception as e:
+            logger.warning(f"Erreur normalisation: {e}, utilisation données brutes")
+            ml_features_scaled = ml_features
         
         return ml_features_scaled
     
     async def _detect_anomalies(self, features_df: pd.DataFrame) -> List[Dict[str, Any]]:
         """Détecte les anomalies avec Isolation Forest"""
-        anomaly_scores = self.anomaly_detector.fit_predict(features_df)
-        outlier_scores = self.anomaly_detector.score_samples(features_df)
+        if len(features_df) < 5:
+            return []
         
-        anomalies = []
-        for idx, (is_anomaly, score) in enumerate(zip(anomaly_scores, outlier_scores)):
-            if is_anomaly == -1:  # Anomalie détectée
-                # Identifier les features les plus contributives
-                feature_contributions = np.abs(features_df.iloc[idx].values)
-                top_features = features_df.columns[np.argsort(feature_contributions)[-3:]].tolist()
-                
-                anomalies.append({
-                    "index": int(idx),
-                    "anomaly_score": float(score),
-                    "severity": "high" if score < -0.5 else "medium",
-                    "contributing_features": top_features,
-                    "type": "pricing_anomaly"
-                })
-        
-        return sorted(anomalies, key=lambda x: x["anomaly_score"])
+        try:
+            anomaly_scores = self.anomaly_detector.fit_predict(features_df)
+            outlier_scores = self.anomaly_detector.score_samples(features_df)
+            
+            anomalies = []
+            for idx, (is_anomaly, score) in enumerate(zip(anomaly_scores, outlier_scores)):
+                if is_anomaly == -1:  # Anomalie détectée
+                    # Identifier les features les plus contributives
+                    feature_contributions = np.abs(features_df.iloc[idx].values)
+                    top_features = features_df.columns[np.argsort(feature_contributions)[-3:]].tolist()
+                    
+                    anomalies.append({
+                        "index": int(idx),
+                        "anomaly_score": float(score),
+                        "severity": "high" if score < -0.5 else "medium",
+                        "contributing_features": top_features,
+                        "type": "pricing_anomaly"
+                    })
+            
+            return sorted(anomalies, key=lambda x: x["anomaly_score"])
+        except Exception as e:
+            logger.error(f"Erreur détection anomalies: {e}")
+            return []
     
     async def _perform_clustering(self, features_df: pd.DataFrame) -> List[int]:
         """Clustering pour segmentation des produits"""
-        clusters = self.clusterer.fit_predict(features_df)
+        if len(features_df) < 5:
+            return [0] * len(features_df)
         
-        # Analyser les clusters
-        unique_clusters = set(clusters)
-        cluster_analysis = {}
-        
-        for cluster_id in unique_clusters:
-            if cluster_id == -1:  # Points de bruit
-                continue
-                
-            cluster_mask = clusters == cluster_id
-            cluster_data = features_df[cluster_mask]
-            
-            cluster_analysis[cluster_id] = {
-                "size": int(cluster_mask.sum()),
-                "centroid": cluster_data.mean().to_dict()
-            }
-        
-        logger.info(f"🎯 Clustering: {len(unique_clusters)} clusters identifiés")
-        return clusters.tolist()
+        try:
+            clusters = self.clusterer.fit_predict(features_df)
+            logger.info(f"🎯 Clustering: {len(set(clusters))} clusters identifiés")
+            return clusters.tolist()
+        except Exception as e:
+            logger.error(f"Erreur clustering: {e}")
+            return [0] * len(features_df)
     
     async def _analyze_trends(self, df: pd.DataFrame) -> Dict[str, Any]:
         """Analyse des tendances de pricing"""
         trends = {
             "global_stats": {
-                "avg_margin": float(df['marge_percent'].mean()),
-                "median_price": float(df['prix_vente'].median()),
-                "high_margin_products": int((df['marge_percent'] > 50).sum()),
-                "low_margin_products": int((df['marge_percent'] < 10).sum()),
+                "total_products": len(df),
+                "avg_margin": float(df['marge_percent'].mean()) if len(df) > 0 else 0,
+                "products_with_stock": int((df['stock_actuel'] > 0).sum()),
+                "products_with_sales": int((df['qte_vendue_12m'] > 0).sum()),
                 "zero_sales_products": int((df['qte_vendue_12m'] == 0).sum())
             },
             "by_quality": {},
@@ -263,18 +293,19 @@ class PricingAIAnalyzer:
             if pd.isna(qualite):
                 continue
             subset = df[df['qualite'] == qualite]
-            trends["by_quality"][qualite] = {
-                "count": len(subset),
-                "avg_price": float(subset['prix_vente'].mean()),
-                "avg_margin": float(subset['marge_percent'].mean())
-            }
+            if len(subset) > 0:
+                trends["by_quality"][qualite] = {
+                    "count": len(subset),
+                    "avg_stock": float(subset['stock_actuel'].mean()),
+                    "avg_margin": float(subset['marge_percent'].mean())
+                }
         
-        # Top/Flop familles par marge
-        famille_margins = df.groupby('famille')['marge_percent'].mean().sort_values(ascending=False)
-        trends["by_family"] = {
-            "top_margin_families": famille_margins.head(5).to_dict(),
-            "low_margin_families": famille_margins.tail(5).to_dict()
-        }
+        # Top familles par nombre de produits
+        if len(df) > 0:
+            famille_counts = df['famille'].value_counts().head(5)
+            trends["by_family"] = {
+                "top_families": famille_counts.to_dict()
+            }
         
         return trends
     
@@ -290,121 +321,87 @@ class PricingAIAnalyzer:
         
         # 1. Recommandations sur les anomalies
         high_anomalies = [a for a in anomalies if a["severity"] == "high"]
-        if len(high_anomalies) > 5:
+        if len(high_anomalies) > 3:
             recommendations.append({
                 "type": "anomaly_correction",
                 "priority": "high",
-                "title": f"Corriger {len(high_anomalies)} anomalies critiques",
-                "description": "Des incohérences majeures de pricing ont été détectées",
-                "action": "review_pricing_rules",
+                "title": f"Corriger {len(high_anomalies)} anomalies critiques détectées",
+                "description": "Des incohérences dans les données de pricing nécessitent une attention",
+                "action": "review_pricing_data",
                 "affected_products": len(high_anomalies)
             })
         
-        # 2. Recommandations sur les marges
-        low_margin_products = df[df['marge_percent'] < 10]
-        if len(low_margin_products) > 0:
-            avg_low_margin = low_margin_products['marge_percent'].mean()
-            recommendations.append({
-                "type": "margin_optimization",
-                "priority": "medium",
-                "title": f"Optimiser {len(low_margin_products)} produits à faible marge",
-                "description": f"Marge moyenne: {avg_low_margin:.1f}% (< 10%)",
-                "action": "increase_prices",
-                "potential_impact": f"+{len(low_margin_products) * 50}€/mois estimé"
-            })
-        
-        # 3. Recommandations sur les stocks morts
-        dead_stock = df[(df['qte_vendue_12m'] == 0) & (df['stock_actuel'] > 0)]
-        if len(dead_stock) > 0:
+        # 2. Recommandations sur les stocks morts
+        zero_sales = trends["global_stats"]["zero_sales_products"]
+        if zero_sales > 5:
             recommendations.append({
                 "type": "inventory_optimization",
                 "priority": "medium",
-                "title": f"Gérer {len(dead_stock)} références sans ventes",
-                "description": "Stock immobilisé sans rotation",
-                "action": "liquidation_or_removal",
-                "affected_products": len(dead_stock)
+                "title": f"Optimiser {zero_sales} références sans ventes",
+                "description": "Produits sans rotation sur les 12 derniers mois",
+                "action": "review_inactive_products",
+                "affected_products": zero_sales
             })
         
-        # 4. Recommandations par clustering
-        cluster_counts = pd.Series(clusters).value_counts()
-        if -1 in cluster_counts and cluster_counts[-1] > 10:
-            recommendations.append({
-                "type": "segmentation",
-                "priority": "low",
-                "title": f"{cluster_counts[-1]} produits atypiques identifiés",
-                "description": "Produits ne correspondant à aucun segment standard",
-                "action": "manual_review",
-                "affected_products": int(cluster_counts[-1])
-            })
+        # 3. Recommandations qualité
+        quality_stats = trends.get("by_quality", {})
+        if len(quality_stats) > 1:
+            # Comparer les marges par qualité
+            margins_by_quality = {q: stats["avg_margin"] for q, stats in quality_stats.items()}
+            sorted_margins = sorted(margins_by_quality.items(), key=lambda x: x[1], reverse=True)
+            
+            if len(sorted_margins) >= 2:
+                best_quality, best_margin = sorted_margins[0]
+                worst_quality, worst_margin = sorted_margins[-1]
+                
+                if best_margin - worst_margin > 10:  # Plus de 10% d'écart
+                    recommendations.append({
+                        "type": "quality_analysis",
+                        "priority": "low",
+                        "title": f"Écart de marge significatif entre qualités",
+                        "description": f"{best_quality}: {best_margin:.1f}% vs {worst_quality}: {worst_margin:.1f}%",
+                        "action": "analyze_quality_pricing",
+                        "affected_products": sum(stats["count"] for stats in quality_stats.values())
+                    })
         
-        # 5. Recommandations qualité vs prix
-        quality_issues = await self._detect_quality_price_issues(df)
-        if quality_issues:
-            recommendations.extend(quality_issues)
+        # 4. Recommandations clustering
+        unique_clusters = len(set(clusters))
+        if unique_clusters > 1:
+            cluster_counts = pd.Series(clusters).value_counts()
+            noise_points = cluster_counts.get(-1, 0)  # Points de bruit DBSCAN
+            
+            if noise_points > len(df) * 0.2:  # Plus de 20% de points atypiques
+                recommendations.append({
+                    "type": "segmentation",
+                    "priority": "low",
+                    "title": f"{noise_points} produits atypiques identifiés",
+                    "description": "Produits ne correspondant à aucun segment standard",
+                    "action": "manual_review_atypical",
+                    "affected_products": int(noise_points)
+                })
         
         return sorted(recommendations, key=lambda x: {"high": 3, "medium": 2, "low": 1}[x["priority"]], reverse=True)
-    
-    async def _detect_quality_price_issues(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
-        """Détecte les incohérences qualité/prix"""
-        issues = []
-        
-        # Grouper par ref_crn/famille pour comparer les qualités
-        for famille in df['famille'].unique():
-            if pd.isna(famille):
-                continue
-                
-            famille_data = df[df['famille'] == famille]
-            if len(famille_data) < 2:
-                continue
-            
-            # Vérifier la cohérence OE > OEM > PMQ > PMV
-            quality_order = {'OE': 4, 'OEM': 3, 'PMQ': 2, 'PMV': 1}
-            for _, row in famille_data.iterrows():
-                same_ref = famille_data[famille_data['refint'] == row['refint']]
-                if len(same_ref) < 2:
-                    continue
-                
-                # Chercher des inversions de prix/qualité
-                for _, other_row in same_ref.iterrows():
-                    if row.name == other_row.name:
-                        continue
-                    
-                    row_quality_rank = quality_order.get(row['qualite'], 0)
-                    other_quality_rank = quality_order.get(other_row['qualite'], 0)
-                    
-                    # Si qualité supérieure mais prix inférieur = problème
-                    if (row_quality_rank > other_quality_rank and 
-                        row['prix_vente'] < other_row['prix_vente']):
-                        
-                        issues.append({
-                            "type": "quality_price_inversion",
-                            "priority": "high",
-                            "title": f"Inversion qualité/prix détectée",
-                            "description": f"{row['qualite']} moins cher que {other_row['qualite']} pour {row['refint']}",
-                            "action": "adjust_pricing",
-                            "cod_pro_1": int(row['cod_pro']),
-                            "cod_pro_2": int(other_row['cod_pro'])
-                        })
-        
-        return issues
     
     async def _calculate_quality_score(self, df: pd.DataFrame, anomalies: List[Dict]) -> Dict[str, Any]:
         """Calcule un score de qualité global du pricing"""
         total_products = len(df)
-        anomaly_rate = len(anomalies) / total_products if total_products > 0 else 0
+        if total_products == 0:
+            return {"overall_score": 0, "message": "Aucune donnée à analyser"}
+        
+        anomaly_rate = len(anomalies) / total_products
         
         # Métriques de qualité
-        margin_quality = 1 - (df['marge_percent'] < 0).sum() / total_products
         consistency_quality = 1 - anomaly_rate
-        rotation_quality = (df['qte_vendue_12m'] > 0).sum() / total_products
+        data_completeness = (df['prix_achat'] > 0).sum() / total_products if total_products > 0 else 0
+        activity_quality = (df['qte_vendue_12m'] > 0).sum() / total_products if total_products > 0 else 0
         
-        overall_score = (margin_quality + consistency_quality + rotation_quality) / 3
+        overall_score = (consistency_quality + data_completeness + activity_quality) / 3
         
         return {
             "overall_score": round(overall_score * 100, 1),
-            "margin_quality": round(margin_quality * 100, 1),
             "consistency_quality": round(consistency_quality * 100, 1),
-            "rotation_quality": round(rotation_quality * 100, 1),
+            "data_completeness": round(data_completeness * 100, 1),
+            "activity_quality": round(activity_quality * 100, 1),
             "total_products_analyzed": total_products,
             "anomalies_detected": len(anomalies)
         }
