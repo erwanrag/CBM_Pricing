@@ -1,24 +1,26 @@
+# requirements.txt - CBM_Pricing avec monitoring avancé et IA
+
+# === Core FastAPI (existant) ===
 fastapi>=0.110.0
 slowapi>=0.1.5
-
 uvicorn[standard]>=0.27.0
 
-# Database
+# === Database (existant) ===
 pyodbc
 sqlalchemy[asyncio,pyodbc]>=2.0.0
 aioodbc
 
-# Env / Config
+# === Env / Config (existant) ===
 python-dotenv
 pydantic[email]>=2.4,<3
 pydantic-settings>=2.0,<3
 
-# Sécurité / Auth
+# === Sécurité / Auth (existant) ===
 python-jose[cryptography]
 passlib[bcrypt]
 bcrypt==4.0.1
 
-# Outils web / Dev
+# === Outils web / Dev (existant) ===
 python-multipart
 aiocache
 redis>=4.2,<6
@@ -27,14 +29,57 @@ pyinstaller
 loguru
 aiofiles
 
-# Analyse / Data
+# === Analyse / Data (existant + renforcé) ===
 pandas
+numpy>=1.24.0
+scipy>=1.11.0
 
-# Tests
+# === Tests (existant) ===
 pytest>=7.4,<8
 pytest-asyncio>=0.23,<1
 pytest-cov>=4.0
 httpx
 
-# Code style
+# === Code style (existant) ===
 black
+
+# ============================================
+# === NOUVELLES DÉPENDANCES MONITORING + IA ===
+# ============================================
+
+# === Machine Learning pour analyse IA ===
+scikit-learn>=1.3.0
+joblib>=1.3.0  # Pour sauvegarder les modèles ML
+
+# === Monitoring système avancé ===
+prometheus-client>=0.19.0  # Métriques Prometheus
+structlog>=23.2.0          # Logs structurés
+sentry-sdk[fastapi]>=1.38.0  # Monitoring erreurs (optionnel)
+
+# === Gestion des emails pour alertes ===
+aiosmtplib>=3.0.0  # SMTP async pour notifications
+jinja2>=3.1.0      # Templates email
+
+# === Utilitaires pour exports ===
+openpyxl>=3.1.0    # Export Excel avancé
+xlsxwriter>=3.1.0  # Export Excel avec formatage
+
+# === Sécurité renforcée ===
+bandit>=1.7.5      # Scan sécurité code Python
+cryptography>=41.0.0  # Crypto renforcée
+
+# === Développement et qualité ===
+flake8>=6.1.0      # Linting Python
+isort>=5.12.0      # Tri imports
+mypy>=1.7.0        # Type checking
+pre-commit>=3.5.0  # Hooks pre-commit
+
+# === HTTP et async renforcés ===
+aiofiles>=23.2.0   # Déjà présent mais version précisée
+aioredis>=2.0.0    # Client Redis async optimisé
+asyncio-mqtt>=0.16.0  # MQTT pour IoT (optionnel)
+
+# === CLI et outils ===
+click>=8.1.0       # CLI pour scripts
+rich>=13.7.0       # Affichage terminal enrichi
+typer>=0.9.0       # CLI moderne
