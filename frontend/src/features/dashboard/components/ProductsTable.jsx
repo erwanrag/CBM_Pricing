@@ -1,4 +1,4 @@
-// 📁 src/features/dashboard/components/ProductsTable.jsx - Version corrigée
+// 📁 src/features/dashboard/components/ProductsTable.jsx 
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { Box, Tooltip, IconButton, Typography } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
@@ -53,6 +53,10 @@ export default function ProductsTable({
   alertesMap = {},
 }) {
   const [rowCount, setRowCount] = useState(0);
+  
+  // REF pour éviter les re-renders si les filtres sont identiques
+  const lastFiltersRef = useRef(null);
+  const lastFiltersStringRef = useRef("");
 
   // Champs des blocs (constants)
   const tarifFields = useMemo(() => ["px_vente", "px_achat", "taux_marge_px", "ca_total"], []);
@@ -66,7 +70,7 @@ export default function ProductsTable({
 
   const handleRowClick = useCallback((params) => {
     if (String(clickedCodPro) === String(params.row.cod_pro)) {
-      setClickedCodPro(null); // Déselectionne si déjà sélectionné
+      setClickedCodPro(null);
     } else {
       setClickedCodPro(params.row.cod_pro);
     }
@@ -78,16 +82,24 @@ export default function ProductsTable({
     return "";
   }, [clickedCodPro, selectedCodPro]);
 
-  // Reset key pour forcer le reset du DataGrid
+  // OPTIMISATION: Reset key stable basé sur la sérialisation des filtres
   const resetKey = useMemo(() => {
-    return JSON.stringify({
+    const filtersString = JSON.stringify({
       no_tarif: filters?.no_tarif,
-      cod_pro_list: filters?.cod_pro_list?.join(",") || "",
-      _forceRefresh: filters?._forceRefresh || ""
+      cod_pro_list: filters?.cod_pro_list,
+      _forceRefresh: filters?._forceRefresh
     });
+    
+    // Si les filtres n'ont pas changé, garder la même clé
+    if (filtersString === lastFiltersStringRef.current) {
+      return lastFiltersStringRef.current;
+    }
+    
+    lastFiltersStringRef.current = filtersString;
+    return filtersString;
   }, [filters?.no_tarif, filters?.cod_pro_list, filters?._forceRefresh]);
 
-  // Définition des colonnes avec mémorisation
+  // Définition des colonnes avec mémorisation STABLE
   const allColumns = useMemo(() => [
     { field: "cod_pro", headerName: "Code Produit", width: 80 },
     { field: "refint", headerName: "Référence", width: 120 },
@@ -204,7 +216,7 @@ export default function ProductsTable({
         </Tooltip>
       ),
     },
-  ], [handleInspectProduct, alertesMap]);
+  ], [handleInspectProduct, alertesMap]); // STABLE: alertesMap ne change que si vraiment nécessaire
 
   // Gestion de la visibilité des colonnes
   const [colVisibility, setColVisibility] = useState(() => {
@@ -230,34 +242,54 @@ export default function ProductsTable({
     [colVisibility, allColumns, blocFields]
   );
 
-  // fetchRows stable avec useCallback et dépendances sérialisées
+  // OPTIMISATION CRITIQUE: fetchRows avec dépendances ultra-stables
   const fetchRows = useCallback(async (page, limit) => {
+    // Vérification de stabilité des filtres
+    const currentFiltersString = JSON.stringify(filters);
+    
     if (process.env.NODE_ENV === 'development') {
-      console.log("ProductsTable fetchRows appelé:", { page, limit, filters });
+      console.log("🔍 ProductsTable fetchRows - tentative:", { 
+        page, 
+        limit, 
+        filtersChanged: currentFiltersString !== JSON.stringify(lastFiltersRef.current)
+      });
+    }
+    
+    // Protection contre les appels redondants
+    if (!filters?.no_tarif || !filters?.cod_pro_list?.length) {
+      console.warn("⚠️ fetchRows: Filtres invalides");
+      return { rows: [], total: 0 };
     }
     
     try {
+      const startTime = performance.now();
       const res = await fetchDashboardProducts(filters, page, limit);
-      setRowCount(res.total || 0);
+      const endTime = performance.now();
       
-      console.log("ProductsTable fetchRows résultat:", {
-        total: res.total,
-        rows_count: res.rows?.length,
-        first_row: res.rows?.[0]
-      });
+      setRowCount(res.total || 0);
+      lastFiltersRef.current = { ...filters };
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log("✅ ProductsTable fetchRows - succès:", {
+          total: res.total,
+          rows_count: res.rows?.length,
+          duration_ms: Math.round(endTime - startTime)
+        });
+      }
       
       return {
         rows: res.rows || [],
         total: res.total || 0,
       };
     } catch (error) {
-      console.error("Erreur lors du chargement des produits dashboard:", error);
+      console.error("❌ Erreur lors du chargement des produits dashboard:", error);
       setRowCount(0);
       return { rows: [], total: 0 };
     }
   }, [
+    // DÉPENDANCES ULTRA-STABLES: Seules les valeurs primitives
     filters?.no_tarif,
-    filters?.cod_pro_list?.join(","),
+    filters?.cod_pro_list?.length, // Plutôt que le tableau complet
     filters?._forceRefresh
   ]);
 
@@ -305,8 +337,6 @@ export default function ProductsTable({
         Array.isArray(alertes) && alertes.length > 0
       ).length;
       
-      console.log("ProductsTable DEBUG - Alertes stats:", { totalAlertes, alertesActives, alertesMap });
-      
       return { totalAlertes, alertesActives };
     } catch (error) {
       console.error("Erreur calcul alerteStats:", error);
@@ -316,7 +346,6 @@ export default function ProductsTable({
 
   // Ne pas rendre le tableau si on n'a pas de filtres valides
   if (!filters?.no_tarif || !filters?.cod_pro_list?.length) {
-    console.log("ProductsTable - Pas de filtres valides:", { filters });
     return (
       <Box sx={{ p: 2, textAlign: "center" }}>
         <Typography variant="body2" color="text.secondary">
@@ -326,12 +355,15 @@ export default function ProductsTable({
     );
   }
 
-  console.log("ProductsTable - Rendu du tableau avec:", {
-    filters: filters,
-    resetKey: resetKey,
-    visibleColumns: visibleColumns.length,
-    alerteStats: alerteStats
-  });
+  // LOGGING RÉDUIT: Seulement si vraiment nécessaire
+  if (process.env.NODE_ENV === 'development') {
+    console.log("🎯 ProductsTable RENDER:", {
+      tarif: filters?.no_tarif,
+      produits_count: filters?.cod_pro_list?.length,
+      resetKey: resetKey.slice(0, 50) + "...",
+      visibleColumns: visibleColumns.length
+    });
+  }
 
   return (
     <Box>
