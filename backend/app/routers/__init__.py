@@ -8,6 +8,7 @@ from .produits.suggestions import router as suggestions_router
 from .logs.router import log_router
 from .parametres.router import parametres_router
 from .tarifs.router import router as tarifs_router
+from .monitoring.monitoring import router as monitoring_router
 
 __all__ = [
     "alertes_router",
@@ -19,5 +20,6 @@ __all__ = [
     "log_router",
     "parametres_router",
     "suggestions_router",
-    "tarifs_router"
+    "tarifs_router",
+    "monitoring_router"
 ]

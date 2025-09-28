@@ -94,7 +94,8 @@ from app.routers import (
     parametres_router,
     log_router,
     export_router,
-    alertes_router
+    alertes_router, 
+    monitoring_router
 )
 app.include_router(auth_router)
 app.include_router(alertes_router)
@@ -106,6 +107,9 @@ app.include_router(log_router)
 app.include_router(parametres_router)
 app.include_router(suggestions_router)
 app.include_router(tarifs_router)
+app.include_router(monitoring_router)
+
+
 
 @app.get("/health")
 async def healthcheck():
