@@ -1,31 +1,30 @@
 // 📁 src/shared/layout/Sidebar.jsx
 import React, { useEffect } from "react";
-import { Drawer, Box, Divider, Typography, Paper } from "@mui/material";
+import { Drawer, Box, Divider, Typography } from "@mui/material";
 import { useLayout } from "@/context/layout/LayoutContext";
 import { AnimatePresence, motion } from "framer-motion";
 import Navigation from "./Navigation";
 import FiltersPanel from "./FiltersPanel";
 import { useSidebar } from "@/context/sidebar/useSidebar";
+import { useLocation } from "react-router-dom";
 import logo from "@/assets/cbm-logo.png";
 
 const Sidebar = () => {
   const { isSidebarOpen, isSidebarPinned, closeSidebar } = useSidebar();
-  const context = useLayout();
-  const filterType = context?.filterType;
-  const showFilters = filterType === "dashboard";
+  const location = useLocation();
 
-  // Debug pour identifier le problème (seulement aux changements significatifs)
+  // 👉 Afficher les filtres uniquement si on est sur /dashboard
+  const showFilters = location.pathname.startsWith("/dashboard");
+
+  // Debug en dev
   useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log("Sidebar filterType change:", {
-        filterType,
+    if (process.env.NODE_ENV === "development") {
+      console.log("Sidebar route change:", {
+        pathname: location.pathname,
         showFilters,
-        contextAvailable: !!context,
-        isSidebarOpen,
-        isSidebarPinned
       });
     }
-  }, [filterType, showFilters]); // Log seulement quand ces valeurs changent
+  }, [location.pathname, showFilters]);
 
   return (
     <AnimatePresence>
@@ -42,7 +41,7 @@ const Sidebar = () => {
             open={true}
             onClose={closeSidebar}
             sx={{
-              width: 280, // Augmenté pour meilleur affichage des filtres
+              width: 280,
               flexShrink: 0,
               "& .MuiDrawer-paper": {
                 width: 280,
@@ -51,23 +50,26 @@ const Sidebar = () => {
                 borderRight: "1px solid #e0e0e0",
                 display: "flex",
                 flexDirection: "column",
-                pt: 2, // Réduit pour plus d'espace
+                pt: 9,
               },
             }}
           >
             {/* Logo et titre */}
             <Box
-              sx={{ 
-                display: "flex", 
-                flexDirection: "column", 
-                alignItems: "center", 
-                gap: 1, 
+              sx={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 1,
                 mb: 2,
-                px: 2
+                px: 2,
               }}
             >
               <img src={logo} alt="CBM Logo" style={{ width: "60px" }} />
-              <Typography variant="subtitle2" sx={{ fontWeight: 600, color: "primary.main" }}>
+              <Typography
+                variant="subtitle2"
+                sx={{ fontWeight: 600, color: "primary.main" }}
+              >
                 CBM Pricing
               </Typography>
             </Box>
@@ -77,7 +79,7 @@ const Sidebar = () => {
               <Navigation />
             </Box>
 
-            {/* Filtres Dashboard - Ajout conditionnel amélioré */}
+            {/* Filtres uniquement sur Dashboard */}
             {showFilters ? (
               <Box sx={{ mt: "auto", p: 2 }}>
                 <FiltersPanel />
@@ -86,11 +88,12 @@ const Sidebar = () => {
               <Box sx={{ mt: "auto" }} />
             )}
 
-            {/* Debug visuel en développement */}
-            {process.env.NODE_ENV === 'development' && (
+            {/* Debug visuel */}
+            {process.env.NODE_ENV === "development" && (
               <Box sx={{ p: 1, bgcolor: "#f0f0f0", fontSize: "10px" }}>
                 <Typography variant="caption">
-                  Debug: filterType={filterType}, showFilters={showFilters ? "true" : "false"}
+                  Debug: pathname={location.pathname}, showFilters=
+                  {showFilters ? "true" : "false"}
                 </Typography>
               </Box>
             )}

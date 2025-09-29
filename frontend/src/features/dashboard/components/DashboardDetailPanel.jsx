@@ -3,7 +3,6 @@ import React, { useEffect, useState, useCallback } from "react";
 import {
   Box,
   Typography,
-  Divider,
   Button,
   Card,
   CardContent,
@@ -21,6 +20,7 @@ import {
   Alert,
   Skeleton,
   IconButton,
+  Divider,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import dayjs from "dayjs";
@@ -28,8 +28,6 @@ import {
   Inventory,
   Euro,
   Category,
-  Store,
-  AssignmentTurnedIn,
   TrendingUp,
   Warning,
 } from "@mui/icons-material";
@@ -40,8 +38,6 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  BarChart,
-  Bar,
 } from "recharts";
 import { getFicheProduit } from "@/api/ficheApi";
 import { fetchHistoriquePrixMarge } from "@/api/dashboardApi";
@@ -54,7 +50,7 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
   const [loading, setLoading] = useState(false);
   const [historiqueLoading, setHistoriqueLoading] = useState(false);
   const [error, setError] = useState(null);
-  
+
   // États pour modification des prix
   const [margeCible, setMargeCible] = useState("");
   const [nouveauPrix, setNouveauPrix] = useState("");
@@ -62,7 +58,42 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
   const [statut, setStatut] = useState("corrigée");
   const [datePrix, setDatePrix] = useState(dayjs().format("YYYY-MM-DD"));
 
-  // Gestionnaires d'événements stables
+  // --- Calculs automatiques ---
+  const calculateFromPrice = (prix) => {
+    if (!product?.px_achat || !prix) return;
+    const nouveauPrix = parseFloat(prix);
+    const prixAchat = parseFloat(product.px_achat);
+    if (isNaN(nouveauPrix) || isNaN(prixAchat) || nouveauPrix <= 0) return;
+    const marge = ((nouveauPrix - prixAchat) / nouveauPrix) * 100;
+    setMargeCible(marge.toFixed(1));
+  };
+
+  const calculateFromMargin = (marge) => {
+    if (!product?.px_achat || !marge) return;
+    const nouvelleMarge = parseFloat(marge);
+    const prixAchat = parseFloat(product.px_achat);
+    if (
+      isNaN(nouvelleMarge) ||
+      isNaN(prixAchat) ||
+      nouvelleMarge >= 100 ||
+      nouvelleMarge < 0
+    )
+      return;
+    const prix = prixAchat / (1 - nouvelleMarge / 100);
+    setNouveauPrix(prix.toFixed(2));
+  };
+
+  // --- Handlers synchronisés ---
+  const handlePrixChange = (value) => {
+    setNouveauPrix(value);
+    calculateFromPrice(value);
+  };
+
+  const handleMargeChange = (value) => {
+    setMargeCible(value);
+    calculateFromMargin(value);
+  };
+
   const handleClose = useCallback(() => {
     setProduct(null);
     setHistorique([]);
@@ -74,7 +105,6 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
   }, [onClose]);
 
   const handleSaveModification = useCallback(() => {
-    // Simulation de sauvegarde - à implémenter selon votre logique
     console.log("Modification sauvegardée:", {
       cod_pro,
       margeCible,
@@ -83,22 +113,14 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
       statut,
       datePrix,
     });
-    
+
     setOpenSnackbar(true);
-    // Réinitialiser les champs après sauvegarde
     setMargeCible("");
     setNouveauPrix("");
     setCommentaire("");
   }, [cod_pro, margeCible, nouveauPrix, commentaire, statut, datePrix]);
 
-  const handleOpenComparator = useCallback(() => {
-    if (product?.no_tarif && cod_pro) {
-      const url = `/compare-tarif?cod_pro=${cod_pro}&tarifs=${product.no_tarif}`;
-      window.open(url, "_blank");
-    }
-  }, [cod_pro, product?.no_tarif]);
-
-  // Chargement des données produit
+  // --- Chargement produit ---
   useEffect(() => {
     if (!cod_pro || !no_tarif) {
       setProduct(null);
@@ -109,16 +131,15 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
     const fetchProductData = async () => {
       setLoading(true);
       setError(null);
-      
+
       try {
         const data = await getFicheProduit(cod_pro, no_tarif);
-        
+
         if (data && data.length > 0) {
           setProduct(data[0]);
-          
-          // Pré-remplir les champs avec les données actuelles
+
           if (data[0].marge_actuelle) {
-            setMargeCible((data[0].marge_actuelle * 100).toFixed(2));
+            setMargeCible((data[0].marge_actuelle * 100).toFixed(1));
           }
           if (data[0].px_vente) {
             setNouveauPrix(data[0].px_vente.toFixed(2));
@@ -137,7 +158,7 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
     fetchProductData();
   }, [cod_pro, no_tarif]);
 
-  // Chargement de l'historique réel depuis votre API
+  // --- Chargement historique ---
   useEffect(() => {
     if (!cod_pro || !no_tarif) {
       setHistorique([]);
@@ -146,37 +167,34 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
 
     const fetchHistoriqueData = async () => {
       setHistoriqueLoading(true);
-      
+
       try {
-        // Utilisation de votre API existante pour l'historique
         const payload = {
           no_tarif: no_tarif,
-          cod_pro_list: [cod_pro], // Liste avec un seul produit
+          cod_pro_list: [cod_pro],
         };
-        
+
         const data = await fetchHistoriquePrixMarge(payload);
-        
-        // Filtrer les données pour ce produit spécifique
-        const produitHistorique = data.filter(item => item.cod_pro === cod_pro);
-        
-        // Transformer les données pour le graphique (période au format Date)
-        const historiqueFormate = produitHistorique.map(item => ({
-          date: item.periode, // Format "2024-01"
+
+        const produitHistorique = data.filter(
+          (item) => item.cod_pro === cod_pro
+        );
+
+        const historiqueFormate = produitHistorique.map((item) => ({
+          date: item.periode,
           periode: item.periode,
           ca_mensuel: item.ca_mensuel || 0,
           marge_mensuelle: item.marge_mensuelle || 0,
           qte_mensuelle: item.qte_mensuelle || 0,
-          marge_mensuelle_pourcentage: item.marge_mensuelle_pourcentage || 0,
-          // Pour le graphique, on peut calculer un prix moyen si nécessaire
-          prix_moyen: item.ca_mensuel && item.qte_mensuelle ? 
-            (item.ca_mensuel / item.qte_mensuelle) : 0
+          marge_mensuelle_pourcentage:
+            item.marge_mensuelle_pourcentage || 0,
+          prix_moyen:
+            item.ca_mensuel && item.qte_mensuelle
+              ? item.ca_mensuel / item.qte_mensuelle
+              : 0,
         }));
-        
+
         setHistorique(historiqueFormate);
-        
-        if (process.env.NODE_ENV === 'development') {
-          console.log("Historique chargé pour produit", cod_pro, ":", historiqueFormate);
-        }
       } catch (err) {
         console.error("Erreur chargement historique:", err);
         setHistorique([]);
@@ -188,7 +206,6 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
     fetchHistoriqueData();
   }, [cod_pro, no_tarif]);
 
-  // Le panel ne s'ouvre que si cod_pro est défini
   const isOpen = Boolean(cod_pro);
 
   return (
@@ -206,10 +223,15 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
       >
         <Box sx={{ p: 3, height: "100%", overflow: "auto" }}>
           {/* Header */}
-          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-            <Typography variant="h6">
-              Détail Produit
-            </Typography>
+          <Box
+            sx={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              mb: 2,
+            }}
+          >
+            <Typography variant="h6">Détail Produit</Typography>
             <IconButton onClick={handleClose} size="small">
               <CloseIcon />
             </IconButton>
@@ -218,7 +240,12 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
           {loading && (
             <Box>
               <Skeleton variant="text" width="80%" height={30} />
-              <Skeleton variant="rectangular" width="100%" height={200} sx={{ my: 2 }} />
+              <Skeleton
+                variant="rectangular"
+                width="100%"
+                height={200}
+                sx={{ my: 2 }}
+              />
               <Skeleton variant="text" width="100%" />
               <Skeleton variant="text" width="60%" />
             </Box>
@@ -232,13 +259,17 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
 
           {product && !loading && (
             <>
-              {/* Informations produit */}
+              {/* Infos produit */}
               <Card sx={{ mb: 3 }}>
                 <CardContent>
                   <Typography variant="h6" gutterBottom>
                     {product.refint || `Produit ${cod_pro}`}
                   </Typography>
-                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    gutterBottom
+                  >
                     Code produit: {cod_pro} • Tarif: {product.no_tarif}
                   </Typography>
 
@@ -247,7 +278,7 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
                       <ListItemIcon>
                         <Euro fontSize="small" />
                       </ListItemIcon>
-                      <ListItemText 
+                      <ListItemText
                         primary="Prix de vente actuel"
                         secondary={formatPrix(product.px_vente)}
                       />
@@ -257,9 +288,11 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
                       <ListItemIcon>
                         <TrendingUp fontSize="small" />
                       </ListItemIcon>
-                      <ListItemText 
+                      <ListItemText
                         primary="Marge actuelle"
-                        secondary={formatPourcentage(product.marge_actuelle * 100)}
+                        secondary={formatPourcentage(
+                          product.marge_actuelle * 100
+                        )}
                       />
                     </ListItem>
 
@@ -267,7 +300,7 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
                       <ListItemIcon>
                         <Inventory fontSize="small" />
                       </ListItemIcon>
-                      <ListItemText 
+                      <ListItemText
                         primary="Stock"
                         secondary={product.stock_total || "Non renseigné"}
                       />
@@ -277,7 +310,7 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
                       <ListItemIcon>
                         <Category fontSize="small" />
                       </ListItemIcon>
-                      <ListItemText 
+                      <ListItemText
                         primary="Qualité"
                         secondary={product.qualite || "Non renseignée"}
                       />
@@ -288,7 +321,7 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
                         <ListItemIcon>
                           <Warning fontSize="small" color="error" />
                         </ListItemIcon>
-                        <ListItemText 
+                        <ListItemText
                           primary="Alertes actives"
                           secondary={`${product.alertes_actives} alerte(s)`}
                           secondaryTypographyProps={{ color: "error" }}
@@ -299,63 +332,74 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
                 </CardContent>
               </Card>
 
-              {/* Historique des prix RÉEL depuis votre API */}
+              {/* Historique */}
               <Card sx={{ mb: 3 }}>
                 <CardContent>
                   <Typography variant="h6" gutterBottom>
                     Évolution CA & Marge - 12 derniers mois
                   </Typography>
-                  
+
                   {historiqueLoading ? (
-                    <Skeleton variant="rectangular" width="100%" height={200} />
+                    <Skeleton
+                      variant="rectangular"
+                      width="100%"
+                      height={200}
+                    />
                   ) : historique.length > 0 ? (
                     <Box sx={{ width: "100%", height: 250 }}>
                       <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={historique}>
-                          <XAxis 
-                            dataKey="date" 
+                          <XAxis
+                            dataKey="date"
                             tickFormatter={(value) => {
-                              // Format "2024-01" → "Jan 24"
-                              const [year, month] = value.split('-');
+                              const [year, month] = value.split("-");
                               const date = new Date(year, month - 1);
-                              return date.toLocaleDateString('fr-FR', { 
-                                month: 'short', 
-                                year: '2-digit' 
+                              return date.toLocaleDateString("fr-FR", {
+                                month: "short",
+                                year: "2-digit",
                               });
                             }}
                           />
                           <YAxis yAxisId="ca" orientation="left" />
                           <YAxis yAxisId="marge" orientation="right" />
-                          <Tooltip 
+                          <Tooltip
                             formatter={(value, name) => {
-                              if (name === "ca_mensuel") return [formatPrix(value), "CA"];
-                              if (name === "marge_mensuelle") return [formatPrix(value), "Marge"];
-                              if (name === "marge_mensuelle_pourcentage") return [formatPourcentage(value), "Marge %"];
+                              if (name === "ca_mensuel")
+                                return [formatPrix(value), "CA"];
+                              if (name === "marge_mensuelle")
+                                return [formatPrix(value), "Marge"];
+                              if (name === "marge_mensuelle_pourcentage")
+                                return [
+                                  formatPourcentage(value),
+                                  "Marge %",
+                                ];
                               return [value, name];
                             }}
-                            labelFormatter={(label) => `Période: ${label}`}
+                            labelFormatter={(label) =>
+                              `Période: ${label}`
+                            }
                           />
-                          <Line 
+                          <Line
                             yAxisId="ca"
-                            type="monotone" 
-                            dataKey="ca_mensuel" 
-                            stroke="#1976d2" 
+                            type="monotone"
+                            dataKey="ca_mensuel"
+                            stroke="#1976d2"
                             strokeWidth={2}
                             name="ca_mensuel"
                           />
-                          <Line 
+                          <Line
                             yAxisId="ca"
-                            type="monotone" 
-                            dataKey="marge_mensuelle" 
-                            stroke="#ed6c02" 
+                            type="monotone"
+                            dataKey="marge_mensuelle"
+                            stroke="#ed6c02"
                             strokeWidth={2}
                             name="marge_mensuelle"
                           />
-                          <Line 
+                          <Line
                             yAxisId="marge"
-                            type="monotone" 
-                            dataKey="marge_mensuelle_pourcentage" 
-                            stroke="#9c27b0" 
+                            type="monotone"
+                            dataKey="marge_mensuelle_pourcentage"
+                            stroke="#9c27b0"
                             strokeWidth={3}
                             strokeDasharray="5 5"
                             name="marge_mensuelle_pourcentage"
@@ -371,27 +415,32 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
                 </CardContent>
               </Card>
 
-              {/* Modification des prix */}
+              {/* Modification */}
               <Card sx={{ mb: 3 }}>
                 <CardContent>
                   <Typography variant="h6" gutterBottom>
                     Ajustement Pricing
                   </Typography>
 
-                  <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 2,
+                    }}
+                  >
                     <TextField
                       label="Marge cible (%)"
                       value={margeCible}
-                      onChange={(e) => setMargeCible(e.target.value)}
+                      onChange={(e) => handleMargeChange(e.target.value)}
                       type="number"
                       size="small"
                       fullWidth
                     />
-
                     <TextField
                       label="Nouveau prix de vente (€)"
                       value={nouveauPrix}
-                      onChange={(e) => setNouveauPrix(e.target.value)}
+                      onChange={(e) => handlePrixChange(e.target.value)}
                       type="number"
                       size="small"
                       fullWidth
@@ -442,22 +491,12 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
                   </Box>
                 </CardContent>
               </Card>
-
-              {/* Actions */}
-              <Button
-                variant="outlined"
-                fullWidth
-                onClick={handleOpenComparator}
-                sx={{ mb: 2 }}
-              >
-                Voir dans Comparateur Tarifs
-              </Button>
             </>
           )}
         </Box>
       </Drawer>
 
-      {/* Snackbar de confirmation */}
+      {/* Snackbar */}
       <Snackbar
         open={openSnackbar}
         autoHideDuration={3000}

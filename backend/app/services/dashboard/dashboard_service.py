@@ -76,7 +76,7 @@ async def get_dashboard_kpi(payload: DashboardFilterRequest, db: AsyncSession):
         FROM produits p
         LEFT JOIN CBM_DATA.Pricing.Px_vte_mouvement v WITH (NOLOCK)
             ON v.cod_pro = p.cod_pro AND v.no_tarif = p.no_tarif
-            AND v.dat_mvt >= DATEFROMPARTS(YEAR(DATEADD(month, -12, GETDATE())), MONTH(DATEADD(month, -12, GETDATE())), 1)
+            AND v.dat_mvt >= DATEFROMPARTS(YEAR(DATEADD(month, -11, GETDATE())), MONTH(DATEADD(month, -11, GETDATE())), 1)
             AND v.type_prix_code = 3
         LEFT JOIN CBM_DATA.Pricing.vw_Alertes_Detaillees a WITH (NOLOCK)
             ON a.cod_pro = p.cod_pro AND a.no_tarif = p.no_tarif AND a.est_active = 1
@@ -156,7 +156,7 @@ async def get_historique_prix_marge(payload: DashboardFilterRequest, db: AsyncSe
         INNER JOIN produits p ON p.cod_pro = mvt.cod_pro AND p.no_tarif = mvt.no_tarif
         INNER JOIN CBM_DATA.dm.Dim_Date d WITH (NOLOCK) ON mvt.dat_mvt = d.Date 
         WHERE mvt.[type_prix_code] = 3
-        AND d.FirstOfMonth >= DATEADD(MONTH, -12, DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1))
+        AND d.FirstOfMonth >= DATEADD(MONTH, -11, DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1))
     ),
     last_12_months AS (
         SELECT DISTINCT TOP 12 periode
