@@ -1,5 +1,6 @@
 @echo off
-cd /d D:\Projet\CBM_Pricing
+set "PROJECT_ROOT=%~dp0"
+cd /d %PROJECT_ROOT%
 set CBM_ENV=prod
 call venv\Scripts\activate
 cd prod\backend

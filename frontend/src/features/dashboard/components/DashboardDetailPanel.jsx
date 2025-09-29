@@ -20,9 +20,14 @@ import {
   Alert,
   Skeleton,
   IconButton,
-  Divider,
+  InputAdornment,
+  Grid,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import dayjs from "dayjs";
 import {
   Inventory,
@@ -30,6 +35,7 @@ import {
   Category,
   TrendingUp,
   Warning,
+  ShoppingCart,
 } from "@mui/icons-material";
 import {
   LineChart,
@@ -38,6 +44,7 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
+  Legend,
 } from "recharts";
 import { getFicheProduit } from "@/api/ficheApi";
 import { fetchHistoriquePrixMarge } from "@/api/dashboardApi";
@@ -58,40 +65,43 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
   const [statut, setStatut] = useState("corrigée");
   const [datePrix, setDatePrix] = useState(dayjs().format("YYYY-MM-DD"));
 
-  // --- Calculs automatiques ---
-  const calculateFromPrice = (prix) => {
-    if (!product?.px_achat || !prix) return;
+  // Normalisation des noms de champs
+  const getPrixVente = (prod) => prod?.prix_vente_tarif || prod?.px_vente || 0;
+  const getPrixAchat = (prod) => prod?.prix_achat || prod?.px_achat || 0;
+  const getMarge = (prod) => prod?.marge_actuelle || 0;
+
+  // Calculs automatiques
+  const calculateFromPrice = useCallback((prix, prixAchat) => {
+    if (!prixAchat || !prix || prix === "") return null;
     const nouveauPrix = parseFloat(prix);
-    const prixAchat = parseFloat(product.px_achat);
-    if (isNaN(nouveauPrix) || isNaN(prixAchat) || nouveauPrix <= 0) return;
-    const marge = ((nouveauPrix - prixAchat) / nouveauPrix) * 100;
-    setMargeCible(marge.toFixed(1));
-  };
+    const pa = parseFloat(prixAchat);
+    if (isNaN(nouveauPrix) || isNaN(pa) || nouveauPrix <= 0) return null;
+    const marge = ((nouveauPrix - pa) / nouveauPrix) * 100;
+    return marge.toFixed(1);
+  }, []);
 
-  const calculateFromMargin = (marge) => {
-    if (!product?.px_achat || !marge) return;
+  const calculateFromMargin = useCallback((marge, prixAchat) => {
+    if (!prixAchat || !marge || marge === "") return null;
     const nouvelleMarge = parseFloat(marge);
-    const prixAchat = parseFloat(product.px_achat);
-    if (
-      isNaN(nouvelleMarge) ||
-      isNaN(prixAchat) ||
-      nouvelleMarge >= 100 ||
-      nouvelleMarge < 0
-    )
-      return;
-    const prix = prixAchat / (1 - nouvelleMarge / 100);
-    setNouveauPrix(prix.toFixed(2));
-  };
+    const pa = parseFloat(prixAchat);
+    if (isNaN(nouvelleMarge) || isNaN(pa) || nouvelleMarge >= 100 || nouvelleMarge < 0) return null;
+    const prix = pa / (1 - nouvelleMarge / 100);
+    return prix.toFixed(2);
+  }, []);
 
-  // --- Handlers synchronisés ---
+  // Handlers
   const handlePrixChange = (value) => {
     setNouveauPrix(value);
-    calculateFromPrice(value);
+    const prixAchat = getPrixAchat(product);
+    const newMarge = calculateFromPrice(value, prixAchat);
+    if (newMarge !== null) setMargeCible(newMarge);
   };
 
   const handleMargeChange = (value) => {
     setMargeCible(value);
-    calculateFromMargin(value);
+    const prixAchat = getPrixAchat(product);
+    const newPrix = calculateFromMargin(value, prixAchat);
+    if (newPrix !== null) setNouveauPrix(newPrix);
   };
 
   const handleClose = useCallback(() => {
@@ -106,21 +116,12 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
 
   const handleSaveModification = useCallback(() => {
     console.log("Modification sauvegardée:", {
-      cod_pro,
-      margeCible,
-      nouveauPrix,
-      commentaire,
-      statut,
-      datePrix,
+      cod_pro, no_tarif, margeCible, nouveauPrix, commentaire, statut, datePrix,
     });
-
     setOpenSnackbar(true);
-    setMargeCible("");
-    setNouveauPrix("");
-    setCommentaire("");
-  }, [cod_pro, margeCible, nouveauPrix, commentaire, statut, datePrix]);
+  }, [cod_pro, no_tarif, margeCible, nouveauPrix, commentaire, statut, datePrix]);
 
-  // --- Chargement produit ---
+  // Chargement produit
   useEffect(() => {
     if (!cod_pro || !no_tarif) {
       setProduct(null);
@@ -134,15 +135,23 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
 
       try {
         const data = await getFicheProduit(cod_pro, no_tarif);
-
         if (data && data.length > 0) {
-          setProduct(data[0]);
+          const prod = data[0];
+          setProduct(prod);
 
-          if (data[0].marge_actuelle) {
-            setMargeCible((data[0].marge_actuelle * 100).toFixed(1));
-          }
-          if (data[0].px_vente) {
-            setNouveauPrix(data[0].px_vente.toFixed(2));
+          const prixVente = getPrixVente(prod);
+          const prixAchat = getPrixAchat(prod);
+
+          if (prixVente) {
+            const prixActuel = parseFloat(prixVente);
+            setNouveauPrix(prixActuel.toFixed(2));
+            
+            if (prixAchat) {
+              const margeActuelle = ((prixActuel - parseFloat(prixAchat)) / prixActuel) * 100;
+              setMargeCible(margeActuelle.toFixed(1));
+            }
+          } else if (prod.marge_actuelle) {
+            setMargeCible((prod.marge_actuelle * 100).toFixed(1));
           }
         } else {
           setError("Produit non trouvé");
@@ -158,7 +167,7 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
     fetchProductData();
   }, [cod_pro, no_tarif]);
 
-  // --- Chargement historique ---
+  // Chargement historique
   useEffect(() => {
     if (!cod_pro || !no_tarif) {
       setHistorique([]);
@@ -169,29 +178,17 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
       setHistoriqueLoading(true);
 
       try {
-        const payload = {
-          no_tarif: no_tarif,
-          cod_pro_list: [cod_pro],
-        };
-
+        const payload = { no_tarif: no_tarif, cod_pro_list: [cod_pro] };
         const data = await fetchHistoriquePrixMarge(payload);
-
-        const produitHistorique = data.filter(
-          (item) => item.cod_pro === cod_pro
-        );
+        const produitHistorique = data.filter((item) => item.cod_pro === cod_pro);
 
         const historiqueFormate = produitHistorique.map((item) => ({
           date: item.periode,
-          periode: item.periode,
           ca_mensuel: item.ca_mensuel || 0,
           marge_mensuelle: item.marge_mensuelle || 0,
           qte_mensuelle: item.qte_mensuelle || 0,
-          marge_mensuelle_pourcentage:
-            item.marge_mensuelle_pourcentage || 0,
-          prix_moyen:
-            item.ca_mensuel && item.qte_mensuelle
-              ? item.ca_mensuel / item.qte_mensuelle
-              : 0,
+          marge_mensuelle_pourcentage: item.marge_mensuelle_pourcentage || 0,
+          prix_moyen: item.ca_mensuel && item.qte_mensuelle ? item.ca_mensuel / item.qte_mensuelle : 0,
         }));
 
         setHistorique(historiqueFormate);
@@ -206,7 +203,18 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
     fetchHistoriqueData();
   }, [cod_pro, no_tarif]);
 
+  // Construction historique prix depuis fiche produit
+  const historiquePrix = product ? [
+    { periode: "M-12", prix: product.prix_vente_m12 },
+    { periode: "M-6", prix: product.prix_vente_m6 },
+    { periode: "M-3", prix: product.prix_vente_m3 },
+    { periode: "Actuel", prix: getPrixVente(product) },
+  ].filter(item => item.prix != null && item.prix > 0) : [];
+
   const isOpen = Boolean(cod_pro);
+  const prixVente = getPrixVente(product);
+  const prixAchat = getPrixAchat(product);
+  const margeActuelle = getMarge(product);
 
   return (
     <>
@@ -215,22 +223,12 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
         open={isOpen}
         onClose={handleClose}
         PaperProps={{
-          sx: {
-            width: { xs: "100%", sm: 480 },
-            maxWidth: "100vw",
-          },
+          sx: { width: { xs: "100%", sm: 560 }, maxWidth: "100vw" },
         }}
       >
         <Box sx={{ p: 3, height: "100%", overflow: "auto" }}>
           {/* Header */}
-          <Box
-            sx={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              mb: 2,
-            }}
-          >
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
             <Typography variant="h6">Détail Produit</Typography>
             <IconButton onClick={handleClose} size="small">
               <CloseIcon />
@@ -240,22 +238,11 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
           {loading && (
             <Box>
               <Skeleton variant="text" width="80%" height={30} />
-              <Skeleton
-                variant="rectangular"
-                width="100%"
-                height={200}
-                sx={{ my: 2 }}
-              />
-              <Skeleton variant="text" width="100%" />
-              <Skeleton variant="text" width="60%" />
+              <Skeleton variant="rectangular" width="100%" height={200} sx={{ my: 2 }} />
             </Box>
           )}
 
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
-          )}
+          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
           {product && !loading && (
             <>
@@ -265,62 +252,41 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
                   <Typography variant="h6" gutterBottom>
                     {product.refint || `Produit ${cod_pro}`}
                   </Typography>
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                    gutterBottom
-                  >
-                    Code produit: {cod_pro} • Tarif: {product.no_tarif}
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    Code: {cod_pro} • Tarif: {no_tarif}
                   </Typography>
 
                   <List dense>
                     <ListItem disablePadding>
-                      <ListItemIcon>
-                        <Euro fontSize="small" />
-                      </ListItemIcon>
+                      <ListItemIcon><ShoppingCart fontSize="small" color="primary" /></ListItemIcon>
                       <ListItemText
                         primary="Prix de vente actuel"
-                        secondary={formatPrix(product.px_vente)}
+                        secondary={
+                          <Typography variant="body2" sx={{ fontWeight: "bold", color: "primary.main" }}>
+                            {formatPrix(prixVente)}
+                          </Typography>
+                        }
                       />
                     </ListItem>
-
                     <ListItem disablePadding>
-                      <ListItemIcon>
-                        <TrendingUp fontSize="small" />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Marge actuelle"
-                        secondary={formatPourcentage(
-                          product.marge_actuelle * 100
-                        )}
-                      />
+                      <ListItemIcon><Euro fontSize="small" /></ListItemIcon>
+                      <ListItemText primary="Prix d'achat" secondary={formatPrix(prixAchat)} />
                     </ListItem>
-
                     <ListItem disablePadding>
-                      <ListItemIcon>
-                        <Inventory fontSize="small" />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Stock"
-                        secondary={product.stock_total || "Non renseigné"}
-                      />
+                      <ListItemIcon><TrendingUp fontSize="small" /></ListItemIcon>
+                      <ListItemText primary="Marge actuelle" secondary={formatPourcentage(margeActuelle * 100)} />
                     </ListItem>
-
                     <ListItem disablePadding>
-                      <ListItemIcon>
-                        <Category fontSize="small" />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Qualité"
-                        secondary={product.qualite || "Non renseignée"}
-                      />
+                      <ListItemIcon><Inventory fontSize="small" /></ListItemIcon>
+                      <ListItemText primary="Stock" secondary={product.stock_total || "N/A"} />
                     </ListItem>
-
+                    <ListItem disablePadding>
+                      <ListItemIcon><Category fontSize="small" /></ListItemIcon>
+                      <ListItemText primary="Qualité" secondary={product.qualite || "N/A"} />
+                    </ListItem>
                     {product.alertes_actives > 0 && (
                       <ListItem disablePadding>
-                        <ListItemIcon>
-                          <Warning fontSize="small" color="error" />
-                        </ListItemIcon>
+                        <ListItemIcon><Warning fontSize="small" color="error" /></ListItemIcon>
                         <ListItemText
                           primary="Alertes actives"
                           secondary={`${product.alertes_actives} alerte(s)`}
@@ -332,19 +298,52 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
                 </CardContent>
               </Card>
 
-              {/* Historique */}
-              <Card sx={{ mb: 3 }}>
-                <CardContent>
-                  <Typography variant="h6" gutterBottom>
-                    Évolution CA & Marge - 12 derniers mois
+              {/* Historique Prix - Ouvert par défaut */}
+              <Accordion defaultExpanded sx={{ mb: 2 }}>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography variant="h6" fontWeight="600">
+                    Historique Prix de Vente
                   </Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  {historiquePrix.length > 0 ? (
+                    <Box sx={{ width: "100%", height: 200 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={historiquePrix}>
+                          <XAxis dataKey="periode" />
+                          <YAxis domain={['auto', 'auto']} />
+                          <Tooltip
+                            formatter={(value) => [formatPrix(value), "Prix"]}
+                            labelFormatter={(label) => `Période: ${label}`}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="prix"
+                            stroke="#10b981"
+                            strokeWidth={3}
+                            dot={{ r: 5, fill: "#10b981" }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </Box>
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      Aucune donnée d'historique prix disponible
+                    </Typography>
+                  )}
+                </AccordionDetails>
+              </Accordion>
 
+              {/* Historique CA & Marge - Fermé par défaut */}
+              <Accordion sx={{ mb: 3 }}>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography variant="h6" fontWeight="600">
+                    Historique CA & Marge (12 mois)
+                  </Typography>
+                </AccordionSummary>
+                <AccordionDetails>
                   {historiqueLoading ? (
-                    <Skeleton
-                      variant="rectangular"
-                      width="100%"
-                      height={200}
-                    />
+                    <Skeleton variant="rectangular" width="100%" height={200} />
                   ) : historique.length > 0 ? (
                     <Box sx={{ width: "100%", height: 250 }}>
                       <ResponsiveContainer width="100%" height="100%">
@@ -360,91 +359,108 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
                               });
                             }}
                           />
-                          <YAxis yAxisId="ca" orientation="left" />
-                          <YAxis yAxisId="marge" orientation="right" />
+                          <YAxis yAxisId="left" orientation="left" label={{ value: '€', position: 'insideLeft' }} />
+                          <YAxis yAxisId="right" orientation="right" label={{ value: '%', position: 'insideRight' }} />
                           <Tooltip
                             formatter={(value, name) => {
-                              if (name === "ca_mensuel")
-                                return [formatPrix(value), "CA"];
-                              if (name === "marge_mensuelle")
-                                return [formatPrix(value), "Marge"];
-                              if (name === "marge_mensuelle_pourcentage")
-                                return [
-                                  formatPourcentage(value),
-                                  "Marge %",
-                                ];
+                              if (name === "CA") return [formatPrix(value), "CA"];
+                              if (name === "Marge €") return [formatPrix(value), "Marge €"];
+                              if (name === "Marge %") return [formatPourcentage(value), "Marge %"];
                               return [value, name];
                             }}
-                            labelFormatter={(label) =>
-                              `Période: ${label}`
-                            }
+                            labelFormatter={(label) => `Période: ${label}`}
                           />
-                          <Line
-                            yAxisId="ca"
-                            type="monotone"
-                            dataKey="ca_mensuel"
-                            stroke="#1976d2"
-                            strokeWidth={2}
-                            name="ca_mensuel"
-                          />
-                          <Line
-                            yAxisId="ca"
-                            type="monotone"
-                            dataKey="marge_mensuelle"
-                            stroke="#ed6c02"
-                            strokeWidth={2}
-                            name="marge_mensuelle"
-                          />
-                          <Line
-                            yAxisId="marge"
-                            type="monotone"
-                            dataKey="marge_mensuelle_pourcentage"
-                            stroke="#9c27b0"
-                            strokeWidth={3}
-                            strokeDasharray="5 5"
-                            name="marge_mensuelle_pourcentage"
-                          />
+                          <Legend />
+                          <Line yAxisId="left" type="monotone" dataKey="ca_mensuel" stroke="#1976d2" strokeWidth={2} name="CA" />
+                          <Line yAxisId="left" type="monotone" dataKey="marge_mensuelle" stroke="#ed6c02" strokeWidth={2} name="Marge €" />
+                          <Line yAxisId="right" type="monotone" dataKey="marge_mensuelle_pourcentage" stroke="#9c27b0" strokeWidth={2} name="Marge %" />
                         </LineChart>
                       </ResponsiveContainer>
                     </Box>
                   ) : (
                     <Typography variant="body2" color="text.secondary">
-                      Aucun historique disponible pour ce produit
+                      Aucune donnée CA/Marge disponible pour ce produit
                     </Typography>
                   )}
-                </CardContent>
-              </Card>
+                </AccordionDetails>
+              </Accordion>
 
               {/* Modification */}
-              <Card sx={{ mb: 3 }}>
+              <Card sx={{ mb: 3, border: "2px solid", borderColor: "primary.main" }}>
                 <CardContent>
-                  <Typography variant="h6" gutterBottom>
+                  <Typography variant="h6" gutterBottom fontWeight="bold">
                     Ajustement Pricing
                   </Typography>
 
-                  <Box
-                    sx={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 2,
-                    }}
-                  >
-                    <TextField
-                      label="Marge cible (%)"
-                      value={margeCible}
-                      onChange={(e) => handleMargeChange(e.target.value)}
-                      type="number"
-                      size="small"
-                      fullWidth
-                    />
-                    <TextField
-                      label="Nouveau prix de vente (€)"
-                      value={nouveauPrix}
-                      onChange={(e) => handlePrixChange(e.target.value)}
-                      type="number"
-                      size="small"
-                      fullWidth
-                    />
+                  {nouveauPrix && prixVente && (
+                    <Box sx={{ mb: 3, p: 2, bgcolor: "grey.100", borderRadius: 1 }}>
+                      <Grid container spacing={2}>
+                        <Grid size={6}>
+                          <Typography variant="caption" color="text.secondary" fontWeight="600">
+                            Écart de prix:
+                          </Typography>
+                          <Typography
+                            variant="h6"
+                            color={parseFloat(nouveauPrix) > parseFloat(prixVente) ? "success.main" : "error.main"}
+                            fontWeight="bold"
+                          >
+                            {parseFloat(nouveauPrix) > parseFloat(prixVente) ? "+" : ""}
+                            {formatPrix(parseFloat(nouveauPrix) - parseFloat(prixVente))}
+                          </Typography>
+                        </Grid>
+                        <Grid size={6}>
+                          <Typography variant="caption" color="text.secondary" fontWeight="600">
+                            Écart de marge:
+                          </Typography>
+                          <Typography
+                            variant="h6"
+                            color={parseFloat(margeCible) > margeActuelle * 100 ? "success.main" : "error.main"}
+                            fontWeight="bold"
+                          >
+                            {parseFloat(margeCible) > margeActuelle * 100 ? "+" : ""}
+                            {(parseFloat(margeCible) - margeActuelle * 100).toFixed(1)}%
+                          </Typography>
+                        </Grid>
+                      </Grid>
+                    </Box>
+                  )}
+
+                  <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    <Grid container spacing={2} alignItems="center">
+                      <Grid size={5}>
+                        <TextField
+                          label="Nouveau prix (€)"
+                          value={nouveauPrix}
+                          onChange={(e) => handlePrixChange(e.target.value)}
+                          type="number"
+                          size="small"
+                          fullWidth
+                          inputProps={{ step: "0.01", min: "0" }}
+                          InputProps={{
+                            startAdornment: <InputAdornment position="start">€</InputAdornment>,
+                          }}
+                          sx={{ "& .MuiInputBase-root": { fontWeight: "bold" } }}
+                        />
+                      </Grid>
+                      <Grid size={2}>
+                        <Typography variant="body2" color="text.secondary" textAlign="center">OU</Typography>
+                      </Grid>
+                      <Grid size={5}>
+                        <TextField
+                          label="Marge cible (%)"
+                          value={margeCible}
+                          onChange={(e) => handleMargeChange(e.target.value)}
+                          type="number"
+                          size="small"
+                          fullWidth
+                          inputProps={{ step: "0.1", min: "0", max: "100" }}
+                          InputProps={{
+                            endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                          }}
+                          sx={{ "& .MuiInputBase-root": { fontWeight: "bold" } }}
+                        />
+                      </Grid>
+                    </Grid>
 
                     <TextField
                       label="Date d'application"
@@ -458,11 +474,7 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
 
                     <FormControl size="small" fullWidth>
                       <InputLabel>Statut</InputLabel>
-                      <Select
-                        value={statut}
-                        onChange={(e) => setStatut(e.target.value)}
-                        label="Statut"
-                      >
+                      <Select value={statut} onChange={(e) => setStatut(e.target.value)} label="Statut">
                         <MenuItem value="en_attente">En attente</MenuItem>
                         <MenuItem value="validée">Validée</MenuItem>
                         <MenuItem value="corrigée">Corrigée</MenuItem>
@@ -485,6 +497,7 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
                       onClick={handleSaveModification}
                       disabled={!margeCible && !nouveauPrix}
                       fullWidth
+                      size="large"
                     >
                       Sauvegarder la modification
                     </Button>
@@ -496,18 +509,13 @@ export default function DashboardDetailPanel({ cod_pro, no_tarif, onClose }) {
         </Box>
       </Drawer>
 
-      {/* Snackbar */}
       <Snackbar
         open={openSnackbar}
         autoHideDuration={3000}
         onClose={() => setOpenSnackbar(false)}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
       >
-        <Alert
-          onClose={() => setOpenSnackbar(false)}
-          severity="success"
-          sx={{ width: "100%" }}
-        >
+        <Alert onClose={() => setOpenSnackbar(false)} severity="success" sx={{ width: "100%" }}>
           Modification sauvegardée avec succès
         </Alert>
       </Snackbar>

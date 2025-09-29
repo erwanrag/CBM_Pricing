@@ -6,19 +6,19 @@ echo ========================================
 echo.
 
 :: 📁 Chemin racine du projet
-cd /d D:\Projet\CBM_Pricing_clean_dev
-set "PROJECT_ROOT=D:\Projet\CBM_Pricing_clean_dev"
+set "PROJECT_ROOT=D:\Projet\CBM_Pricing_dev"
+cd /d %PROJECT_ROOT%
 echo 📁 Racine du projet : %PROJECT_ROOT%
 
 :: ✅ Vérification frontend
-if not exist frontend\package.json (
+if not exist %PROJECT_ROOT%\frontend\package.json (
     echo [ERREUR] package.json manquant dans frontend !
     pause
     exit /b
 )
 
 :: ✅ Vérification venv
-if not exist venv\Scripts\activate (
+if not exist %PROJECT_ROOT%\venv\Scripts\activate (
     echo [ERREUR] Environnement virtuel Python non trouvé à l'emplacement attendu : venv\Scripts\activate
     pause
     exit /b
@@ -43,15 +43,15 @@ if /i "%MODE%"=="prod" (
 )
 
 :: 🚀 Lancer backend
-start "CBM Backend (%MODE%)" cmd /k "cls && cd backend && call ..\venv\Scripts\activate && %BACKEND_CMD%"
+start "CBM Backend (%MODE%)" cmd /k "cls && cd %PROJECT_ROOT%\backend && call ..\venv\Scripts\activate && %BACKEND_CMD%"
 
 :: 🧹 Nettoyage cache Vite (sécurité)
 echo 🧹 Suppression du cache .vite et dist...
-rd /s /q frontend\.vite > nul 2>&1
-rd /s /q frontend\dist > nul 2>&1
+rd /s /q %PROJECT_ROOT%\frontend\.vite > nul 2>&1
+rd /s /q %PROJECT_ROOT%\frontend\dist > nul 2>&1
 
 :: 🖥️ Lancer frontend
-cd /d D:\Projet\CBM_Pricing_clean_dev\frontend
+cd /d %PROJECT_ROOT%\frontend
 start "CBM Frontend (DEV)" cmd /k "cls && npm run dev || pause"
 
 :: 🌐 Ouvrir interfaces web automatiquement

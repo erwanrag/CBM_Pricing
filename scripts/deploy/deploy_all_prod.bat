@@ -2,18 +2,20 @@
 title 🚀 Déploiement complet CBM Pricing DEV → PROD
 setlocal
 
-set PROJECT_ROOT=D:\Projet\CBM_Pricing
-set DEV_BACKEND=%PROJECT_ROOT%\dev\backend
-set PROD_BACKEND=%PROJECT_ROOT%\prod\backend
-set DEV_FRONTEND=%PROJECT_ROOT%\dev\frontend
-set PROD_FRONTEND=%PROJECT_ROOT%\prod\frontend
+:: Dossiers DEV et PROD
+set DEV_ROOT=D:\Projet\CBM_Pricing_dev
+set PROD_ROOT=D:\Projet\CBM_Pricing
+
+set DEV_BACKEND=%DEV_ROOT%\backend
+set PROD_BACKEND=%PROD_ROOT%\backend
+set DEV_FRONTEND=%DEV_ROOT%\frontend
+set PROD_FRONTEND=%PROD_ROOT%\frontend
 
 echo ========================================
 echo 🔄 Nettoyage & copie du backend
 echo ========================================
 robocopy %DEV_BACKEND% %PROD_BACKEND% /MIR /XD __pycache__ tests /XF *.pyc *.log .env*
 echo ✅ Backend copié
-
 
 echo ➕ Copie des env prod/dev vers prod/backend
 copy /Y %DEV_BACKEND%\.env.dev %PROD_BACKEND%\.env.dev
@@ -24,7 +26,6 @@ echo ========================================
 echo 🔄 Nettoyage & copie du frontend (sans dist)
 echo ========================================
 robocopy %DEV_FRONTEND% %PROD_FRONTEND% /MIR /XD node_modules dist /XF *.log start_frontend.cmd
-
 echo ✅ Frontend copié
 
 echo.
