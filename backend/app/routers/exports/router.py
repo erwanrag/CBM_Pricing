@@ -82,26 +82,44 @@ async def export_compare_tarif(
         raise HTTPException(status_code=500, detail="Dossier export inaccessible")
 
     try:
-        # Forcer récupération de toutes les données pour export complet
-        payload.export_all = True
-        payload.page = 0
-        payload.limit = 999999
-
-        data = await get_comparatif_multi(db, payload)
-        csv_content = generate_csv_from_rows(data.get("rows", []))
+        logger.info(f"Export CSV demandé pour tarifs: {payload.tarifs}, filtres: cod_pro={payload.cod_pro}, refint={payload.refint}")
+        
+        # ✅ CORRECTION : Créer un nouveau payload modifié au lieu de muter l'existant
+        export_payload = payload.model_copy(update={
+            "page": 1,
+            "limit": 999999,
+            "sort_by": payload.sort_by or "cod_pro",
+            "sort_dir": payload.sort_dir or "asc"
+        })
+        
+        # Récupérer toutes les données via le service
+        data = await get_comparatif_multi(db, export_payload)
+        
+        rows = data.get("rows", [])
+        logger.info(f"Export CSV: {len(rows)} lignes récupérées sur {data.get('total', 0)} total")
+        
+        if not rows:
+            logger.warning("Export CSV: aucune donnée à exporter")
+            raise HTTPException(status_code=404, detail="Aucune donnée à exporter avec ces filtres")
+        
+        # Génération du CSV
+        csv_content = generate_csv_from_rows(rows)
         filename = f"export_compare_tarif_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        
+        # Lancement tâche asynchrone
         background_tasks.add_task(write_csv_file, filename, csv_content)
+        
+        logger.info(f"Export CSV lancé: {filename}")
         return {"message": "Export lancé", "filename": filename}
 
+    except HTTPException:
+        raise
     except Exception as exc:
-        # Affiche juste le nom/type de l'erreur et son message :
-        import traceback
-        logger.error(f"[EXPORT ERROR] {type(exc).__name__}: {exc}")
+        logger.error(f"[EXPORT ERROR] {type(exc).__name__}: {exc}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"{type(exc).__name__}: {str(exc)}"
+            detail=f"Erreur export: {type(exc).__name__}: {str(exc)}"
         )
-
 
 # Fonction pour générer CSV pour alertes (au même niveau que les autres fonctions)
 def generate_csv_from_alertes(rows):

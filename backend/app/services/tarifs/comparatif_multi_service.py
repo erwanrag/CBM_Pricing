@@ -283,8 +283,8 @@ async def get_comparatif_multi(db: AsyncSession, payload: ComparatifFilterReques
                 item["tarifs"][str(t)] = tarif_data
                 
                 # Debug pour vérifier les données
-                if tarif_data.get("prix"):
-                    logger.debug(f"Produit {item['cod_pro']} - Tarif {t}: prix={tarif_data['prix']}, marge={tarif_data.get('marge')}")
+                #if tarif_data.get("prix"):
+                #    logger.debug(f"Produit {item['cod_pro']} - Tarif {t}: prix={tarif_data['prix']}, marge={tarif_data.get('marge')}")
 
             # Ajout du ratio si calculé
             if len(tarifs) >= 2:
