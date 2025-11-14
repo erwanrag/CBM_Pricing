@@ -1,14 +1,19 @@
 @echo off
-title CBM Pricing V2 - Start
+title 🚀 CBM Pricing - Start
 echo ========================================
-echo     Starting CBM Pricing V2
+echo     Starting CBM Pricing
 echo ========================================
 echo.
 
 :: 📁 Chemin racine du projet
-set "PROJECT_ROOT=D:\Projet\CBM_Pricing_dev"
+set "PROJECT_ROOT=D:\Projet\CBM_Pricing"
 cd /d %PROJECT_ROOT%
 echo 📁 Racine du projet : %PROJECT_ROOT%
+
+:: === CONFIG ===
+set BACKEND_PORT=8000
+set FRONTEND_PORT=5173
+set SERVER_IP=127.0.0.1
 
 :: ✅ Vérification frontend
 if not exist %PROJECT_ROOT%\frontend\package.json (
@@ -19,7 +24,7 @@ if not exist %PROJECT_ROOT%\frontend\package.json (
 
 :: ✅ Vérification venv
 if not exist %PROJECT_ROOT%\venv\Scripts\activate (
-    echo [ERREUR] Environnement virtuel Python non trouvé à l'emplacement attendu : venv\Scripts\activate
+    echo [ERREUR] Environnement virtuel Python non trouvé : venv\Scripts\activate
     pause
     exit /b
 )
@@ -37,9 +42,9 @@ if errorlevel 1 (
 set /p MODE=Mode [dev/prod] ?:
 
 if /i "%MODE%"=="prod" (
-    set "BACKEND_CMD=uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 4"
+    set "BACKEND_CMD=uvicorn app.main:app --host 0.0.0.0 --port %BACKEND_PORT% --workers 4"
 ) else (
-    set "BACKEND_CMD=python -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload"
+    set "BACKEND_CMD=python -m uvicorn app.main:app --host 0.0.0.0 --port %BACKEND_PORT% --reload"
 )
 
 :: 🚀 Lancer backend
@@ -52,16 +57,20 @@ rd /s /q %PROJECT_ROOT%\frontend\dist > nul 2>&1
 
 :: 🖥️ Lancer frontend
 cd /d %PROJECT_ROOT%\frontend
-start "CBM Frontend (DEV)" cmd /k "cls && npm run dev || pause"
+if /i "%MODE%"=="prod" (
+    start "CBM Frontend (PROD)" cmd /k "cls && npx serve -s dist -l %FRONTEND_PORT%"
+) else (
+    start "CBM Frontend (DEV)" cmd /k "cls && npm run dev -- --port %FRONTEND_PORT% || pause"
+)
 
 :: 🌐 Ouvrir interfaces web automatiquement
 timeout /t 5 > nul
-start http://127.0.0.1:8001/docs
-start http://127.0.0.1:5174
+start http://%SERVER_IP%:%BACKEND_PORT%/docs
+start http://%SERVER_IP%:%FRONTEND_PORT%
 
 :: 🔚 Retour à la racine
 cd /d %PROJECT_ROOT%
 
 echo.
-echo ✅ CBM Pricing V2 lancé en mode %MODE% avec succès !
+echo ✅ CBM Pricing lancé en mode %MODE% sur %SERVER_IP%:%BACKEND_PORT% et %SERVER_IP%:%FRONTEND_PORT%
 pause

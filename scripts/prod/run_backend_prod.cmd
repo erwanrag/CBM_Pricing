@@ -1,7 +1,9 @@
 @echo off
-set "PROJECT_ROOT=%~dp0"
+set PROJECT_ROOT=D:\Projet\CBM_Pricing
+
 cd /d %PROJECT_ROOT%
-set CBM_ENV=prod
 call venv\Scripts\activate
-cd prod\backend
+
+cd backend
 uvicorn app.main:app --host 0.0.0.0 --port 8000
+

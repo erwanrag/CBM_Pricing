@@ -1,37 +1,118 @@
-//src/api/exportApi.js
-import { api } from "@/api";
+// frontend/src/api/exportApi.js
 
-export async function exportTarifsExcel(params) {
-  const response = await api.get("/exports/tarifs", {
-    params,
-    responseType: "blob",
+import { API_BASE_URL } from "@/config/env";
+
+/**
+ * Helper pour récupérer le token d'authentification
+ */
+const getAuthToken = () => {
+  return localStorage.getItem("access_token") || sessionStorage.getItem("access_token");
+};
+
+/**
+ * Helper pour télécharger un blob en tant que fichier
+ */
+const downloadBlob = (blob, filename) => {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+};
+
+/**
+ * Export compare-tarif (streaming direct)
+ */
+export const exportCompareTarif = async (payload) => {
+  const token = getAuthToken();
+  
+  const response = await fetch(`${API_BASE_URL}/export/compare-tarif`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+    body: JSON.stringify(payload),
   });
-  return response;
-}
 
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Export failed: ${response.statusText}`);
+  }
 
-// Lance l'export CSV asynchrone (POST /export/compare-tarif)
-export async function startExportCompareTarif(params) {
-  const response = await api.post("/export/compare-tarif", params);
-  return response.data; // { message, filename }
-}
+  // Récupère le blob
+  const blob = await response.blob();
 
-// Lance l'export CSV asynchrone pour alertes (POST /export/alertes/export-csv)
-export async function startExportAlertes(params) {
-  const response = await api.post("/export/alertes/export-csv", params);
-  return response.data; // { message, filename }
-}
+  // Extrait le nom de fichier depuis Content-Disposition
+  const contentDisposition = response.headers.get("Content-Disposition");
+  const filename = contentDisposition
+    ? contentDisposition.split("filename=")[1]?.replace(/"/g, "")
+    : `export_compare_tarif_${Date.now()}.csv`;
 
-// Liste les fichiers CSV exportés (GET /export/files)
-export async function listExportFiles() {
-  const response = await api.get("/export/files");
-  return response.data; // { files: [...] }
-}
+  // Télécharge automatiquement
+  downloadBlob(blob, filename);
+};
 
-// Télécharge un fichier CSV exporté (GET /export/download/{filename})
-export async function downloadExportFile(filename) {
-  const response = await api.get(`/export/download/${filename}`, {
-    responseType: "blob", // Important pour téléchargement binaire
+/**
+ * Export alertes (streaming direct)
+ */
+export const exportAlertes = async (payload) => {
+  const token = getAuthToken();
+  
+  const response = await fetch(`${API_BASE_URL}/export/alertes/export-csv`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+    body: JSON.stringify(payload),
   });
-  return response;
-}
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Export alertes failed: ${response.statusText}`);
+  }
+
+  // Récupère le blob
+  const blob = await response.blob();
+
+  // Extrait le nom de fichier
+  const contentDisposition = response.headers.get("Content-Disposition");
+  const filename = contentDisposition
+    ? contentDisposition.split("filename=")[1]?.replace(/"/g, "")
+    : `export_alertes_${Date.now()}.csv`;
+
+  // Télécharge automatiquement
+  downloadBlob(blob, filename);
+};
+
+// ========================================
+// DEPRECATED: Anciennes fonctions (ne plus utiliser)
+// ========================================
+
+/**
+ * @deprecated Utiliser exportCompareTarif() à la place
+ */
+export const startExportCompareTarif = async (payload) => {
+  console.warn("⚠️ startExportCompareTarif() est déprécié, utilisez exportCompareTarif()");
+  await exportCompareTarif(payload);
+};
+
+/**
+ * @deprecated Utiliser exportAlertes() à la place
+ */
+export const startExportAlertes = async (payload) => {
+  console.warn("⚠️ startExportAlertes() est déprécié, utilisez exportAlertes()");
+  await exportAlertes(payload);
+};
+
+/**
+ * @deprecated Ne plus utiliser (streaming direct remplace le polling)
+ */
+export const listExportFiles = async () => {
+  console.warn("⚠️ listExportFiles() est déprécié (plus nécessaire avec streaming)");
+  return { files: [] };
+};

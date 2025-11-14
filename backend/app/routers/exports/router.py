@@ -1,90 +1,125 @@
 # app/routers/exports/router.py
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends, Request
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime
 from app.common.logger import logger
-import aiofiles
-import os
-import json
+from io import StringIO
+import csv
 
 from app.db.dependencies import get_db
 from app.schemas.tarifs.comparatif_multi_schema import ComparatifFilterRequest
 from app.services.tarifs.comparatif_multi_service import get_comparatif_multi
-
 from app.schemas.alertes.alertes_schema import AlertesSummaryRequest
-from app.services.alertes.alertes_service import get_alertes_summary  
+from app.services.alertes.alertes_service import get_alertes_summary
 
-
-# Dossier d'export - modifie selon ton environnement réel
-EXPORT_DIR = r"\\asp.local\cbm$\DOCBUR\PROD\BI-Sharing\CBM_Pricing_Link\Export"
-CSV_SEPARATOR = ";"
 router = APIRouter(prefix="/export", tags=["Exports"])
 
-# Helper : écriture fichier csv asynchrone
-async def write_csv_file(filename: str, content: str):
-    full_path = os.path.join(EXPORT_DIR, filename)
-    async with aiofiles.open(full_path, mode="w", encoding="utf-8-sig") as f:
-        await f.write(content)
+CSV_SEPARATOR = ";"
 
-# Helper : génération contenu CSV dynamique selon structure des données
+# ========================================
+# Helper : Génération CSV pour compare-tarif
+# ========================================
 def generate_csv_from_rows(rows):
-    if not rows:
-        # En-tête CSV même si pas de données
-        return "cod_pro,refint,nom_pro,qualite,statut,prix_achat,pmp_LM,stock_LM,ca_LM,qte_LM,marge_LM," \
-               "tarif_no,prix,marge,qte,ca,marge_realisee\n"
+    """Génère un CSV avec colonnes dynamiques pour les tarifs"""
+    output = StringIO()
     
-    # Trouver toutes les clés de tarifs dynamiques présentes
+    if not rows:
+        output.write("cod_pro;refint;nom_pro;qualite;statut;prix_achat;pmp_LM;stock_LM;ca_LM;qte_LM;marge_LM\n")
+        return output.getvalue()
+    
+    # Trouver toutes les clés de tarifs dynamiques
     tarif_keys = set()
     for row in rows:
         tarif_keys.update(row.get("tarifs", {}).keys())
     tarif_keys = sorted(tarif_keys)
 
-    # En-têtes fixes + dynamiques par tarif
+    # En-têtes fixes
     headers = [
-        "cod_pro", "refint", "nom_pro", "qualite", "statut", "prix_achat", "pmp_LM", "stock_LM",
-        "ca_LM", "qte_LM", "marge_LM"
+        "cod_pro", "refint", "nom_pro", "qualite", "statut", "prix_achat", 
+        "pmp_LM", "stock_LM", "ca_LM", "qte_LM", "marge_LM"
     ]
-    dynamic_headers = []
+    
+    # En-têtes dynamiques par tarif
     for tk in tarif_keys:
-        dynamic_headers.extend([
+        headers.extend([
             f"prix_{tk}", f"marge_{tk}", f"qte_{tk}", f"ca_{tk}", f"marge_realisee_{tk}"
         ])
-    header_line = CSV_SEPARATOR.join(headers + dynamic_headers) + "\n"
-
-    lines = [header_line]
+    
+    writer = csv.DictWriter(output, fieldnames=headers, delimiter=CSV_SEPARATOR, extrasaction='ignore')
+    writer.writeheader()
+    
     for row in rows:
-        fixed_values = [str(row.get(h, "")) for h in headers]
-        dynamic_values = []
+        flat_row = {
+            "cod_pro": row.get("cod_pro", ""),
+            "refint": row.get("refint", ""),
+            "nom_pro": row.get("nom_pro", ""),
+            "qualite": row.get("qualite", ""),
+            "statut": row.get("statut", ""),
+            "prix_achat": row.get("prix_achat", ""),
+            "pmp_LM": row.get("pmp_LM", ""),
+            "stock_LM": row.get("stock_LM", ""),
+            "ca_LM": row.get("ca_LM", ""),
+            "qte_LM": row.get("qte_LM", ""),
+            "marge_LM": row.get("marge_LM", ""),
+        }
+        
+        # Ajoute les colonnes dynamiques des tarifs
         for tk in tarif_keys:
             tarif = row.get("tarifs", {}).get(tk, {})
-            dynamic_values.extend([
-                str(tarif.get("prix", "")),
-                str(tarif.get("marge", "")),
-                str(tarif.get("qte", "")),
-                str(tarif.get("ca", "")),
-                str(tarif.get("marge_realisee", "")),
-            ])
-        lines.append(CSV_SEPARATOR.join(fixed_values + dynamic_values) + "\n")
+            flat_row[f"prix_{tk}"] = tarif.get("prix", "")
+            flat_row[f"marge_{tk}"] = tarif.get("marge", "")
+            flat_row[f"qte_{tk}"] = tarif.get("qte", "")
+            flat_row[f"ca_{tk}"] = tarif.get("ca", "")
+            flat_row[f"marge_realisee_{tk}"] = tarif.get("marge_realisee", "")
+        
+        writer.writerow(flat_row)
+    
+    return output.getvalue()
 
-    return "".join(lines)
+# ========================================
+# Helper : Génération CSV pour alertes
+# ========================================
+def generate_csv_from_alertes(rows):
+    """Génère un CSV pour les alertes"""
+    output = StringIO()
+    
+    if not rows:
+        output.write("cod_pro;refint;qualite;grouping_crn;no_tarif;nb_alertes;regles;ca_total;date_detection;px_vente;px_achat;marge_relative\n")
+        return output.getvalue()
+    
+    headers = [
+        "cod_pro", "refint", "qualite", "grouping_crn", "no_tarif",
+        "nb_alertes", "regles", "ca_total", "date_detection",
+        "px_vente", "px_achat", "marge_relative"
+    ]
+    
+    writer = csv.DictWriter(output, fieldnames=headers, delimiter=CSV_SEPARATOR, extrasaction='ignore')
+    writer.writeheader()
+    
+    for row in rows:
+        # Formate les dates ISO
+        flat_row = {k: v for k, v in row.items()}
+        if isinstance(flat_row.get("date_detection"), datetime):
+            flat_row["date_detection"] = flat_row["date_detection"].isoformat()
+        
+        writer.writerow(flat_row)
+    
+    return output.getvalue()
 
-# Endpoint POST pour lancer un export CSV asynchrone
+# ========================================
+# Endpoint : Export compare-tarif (streaming)
+# ========================================
 @router.post("/compare-tarif")
 async def export_compare_tarif(
     payload: ComparatifFilterRequest,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    if not os.path.exists(EXPORT_DIR):
-        raise HTTPException(status_code=500, detail="Dossier export inaccessible")
-
     try:
         logger.info(f"Export CSV demandé pour tarifs: {payload.tarifs}, filtres: cod_pro={payload.cod_pro}, refint={payload.refint}")
         
-        # ✅ CORRECTION : Créer un nouveau payload modifié au lieu de muter l'existant
+        # Crée une copie du payload avec pagination désactivée
         export_payload = payload.model_copy(update={
             "page": 1,
             "limit": 999999,
@@ -92,25 +127,31 @@ async def export_compare_tarif(
             "sort_dir": payload.sort_dir or "asc"
         })
         
-        # Récupérer toutes les données via le service
+        # Récupère toutes les données
         data = await get_comparatif_multi(db, export_payload)
-        
         rows = data.get("rows", [])
+        
         logger.info(f"Export CSV: {len(rows)} lignes récupérées sur {data.get('total', 0)} total")
         
         if not rows:
             logger.warning("Export CSV: aucune donnée à exporter")
             raise HTTPException(status_code=404, detail="Aucune donnée à exporter avec ces filtres")
         
-        # Génération du CSV
+        # Génère le CSV
         csv_content = generate_csv_from_rows(rows)
         filename = f"export_compare_tarif_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         
-        # Lancement tâche asynchrone
-        background_tasks.add_task(write_csv_file, filename, csv_content)
+        logger.info(f"Export CSV généré: {filename}, taille: {len(csv_content)} bytes")
         
-        logger.info(f"Export CSV lancé: {filename}")
-        return {"message": "Export lancé", "filename": filename}
+        # Retourne en streaming direct
+        return StreamingResponse(
+            iter([csv_content.encode('utf-8-sig')]),  # BOM UTF-8 pour Excel
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Type": "text/csv; charset=utf-8"
+            }
+        )
 
     except HTTPException:
         raise
@@ -121,64 +162,54 @@ async def export_compare_tarif(
             detail=f"Erreur export: {type(exc).__name__}: {str(exc)}"
         )
 
-# Fonction pour générer CSV pour alertes (au même niveau que les autres fonctions)
-def generate_csv_from_alertes(rows):
-    if not rows:
-        return "cod_pro,refint,qualite,grouping_crn,no_tarif,nb_alertes,regles,ca_total,date_detection,px_vente,px_achat,marge_relative\n"
-    headers = [
-        "cod_pro", "refint", "qualite", "grouping_crn", "no_tarif",
-        "nb_alertes", "regles", "ca_total", "date_detection",
-        "px_vente", "px_achat", "marge_relative"
-    ]
-    lines = [CSV_SEPARATOR.join(headers) + "\n"]
-    for row in rows:
-        line = CSV_SEPARATOR.join([
-            str(row.get(h, "")) if not isinstance(row.get(h, ""), datetime) else row.get(h).isoformat()
-            for h in headers
-        ])
-        lines.append(line + "\n")
-    return "".join(lines)
-
-
+# ========================================
+# Endpoint : Export alertes (streaming)
+# ========================================
 @router.post("/alertes/export-csv")
 async def export_alertes_csv(
     payload: AlertesSummaryRequest,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    if not os.path.exists(EXPORT_DIR):
-        raise HTTPException(status_code=500, detail="Dossier export inaccessible")
+    try:
+        logger.info(f"Export CSV alertes demandé avec filtres: {payload}")
+        
+        # Force export complet
+        export_payload = payload.model_copy(update={
+            "export_all": True,
+            "page": 0,
+            "limit": 999999
+        })
+        
+        data = await get_alertes_summary(export_payload, db)
+        rows = data.get("rows", [])
+        
+        logger.info(f"Export CSV alertes: {len(rows)} lignes récupérées")
+        
+        if not rows:
+            logger.warning("Export CSV alertes: aucune donnée")
+            raise HTTPException(status_code=404, detail="Aucune alerte à exporter")
+        
+        # Génère le CSV
+        csv_content = generate_csv_from_alertes(rows)
+        filename = f"export_alertes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        
+        logger.info(f"Export CSV alertes généré: {filename}")
+        
+        # Retourne en streaming direct
+        return StreamingResponse(
+            iter([csv_content.encode('utf-8-sig')]),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Type": "text/csv; charset=utf-8"
+            }
+        )
 
-    # Forcer export complet
-    payload.export_all = True
-    payload.page = 0
-    payload.limit = 999999
-
-    data = await get_alertes_summary(payload, db)
-
-    csv_content = generate_csv_from_alertes(data.get("rows", []))
-    filename = f"export_alertes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-
-    background_tasks.add_task(write_csv_file, filename, csv_content)
-
-    return {"message": "Export lancé", "filename": filename}
-
-
-
-
-
-# Endpoint GET pour lister les fichiers CSV exportés
-@router.get("/files")
-async def list_export_files():
-    if not os.path.exists(EXPORT_DIR):
-        raise HTTPException(status_code=500, detail="Dossier export inaccessible")
-    files = [f for f in os.listdir(EXPORT_DIR) if f.endswith(".csv")]
-    return {"files": files}
-
-# Endpoint GET pour télécharger un fichier CSV exporté
-@router.get("/download/{filename}")
-async def download_export(filename: str):
-    full_path = os.path.join(EXPORT_DIR, filename)
-    if not os.path.isfile(full_path):
-        raise HTTPException(404, "Fichier introuvable")
-    return FileResponse(full_path, media_type="text/csv", filename=filename)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"[EXPORT ALERTES ERROR] {type(exc).__name__}: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erreur export alertes: {str(exc)}"
+        )

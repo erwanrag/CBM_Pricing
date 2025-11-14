@@ -6,12 +6,12 @@ echo ========================================
 echo.
 
 set CBM_ENV=prod
-set BACKEND_PORT=8001
-set FRONTEND_PORT=3010
+set BACKEND_PORT=8000
+set FRONTEND_PORT=5173
 set SERVER_IP=10.103.3.11
 
-cd /d D:\Projet\CBM_Pricing_dev
-set "PROJECT_ROOT=D:\Projet\CBM_Pricing_dev"
+cd /d D:\Projet\CBM_Pricing
+set "PROJECT_ROOT=D:\Projet\CBM_Pricing"
 
 if not exist frontend\dist (
     echo [ERREUR] Le dossier build React 'dist' est manquant dans frontend !
@@ -30,7 +30,7 @@ if errorlevel 1 (
 start "CBM Backend (PROD)" cmd /k "cd /d %PROJECT_ROOT%\backend && call ..\venv\Scripts\activate && python -m uvicorn app.main:app --host 0.0.0.0 --port %BACKEND_PORT%"
 
 cd frontend
-start "CBM Frontend (PROD)" cmd /k "serve -s dist -l %FRONTEND_PORT%"
+start "CBM Frontend (PROD)" cmd /k "npx serve -s dist -l %FRONTEND_PORT%"
 
 timeout /t 5 > nul
 start http://%SERVER_IP%:%BACKEND_PORT%/docs

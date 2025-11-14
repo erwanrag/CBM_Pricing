@@ -11,15 +11,12 @@ from starlette.requests import Request
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 import time
-import logging
 import redis.asyncio as redis
 
 from app.settings import get_settings
-from app.db.dependencies import get_db
 from app.db.engine import test_db_connection
 from app.common.logger import logger
-from app.common.redis_client import test_connection
-from app.common.redis_client import redis_client
+from app.common.redis_client import test_connection, redis_client
 
 # === Chargement des paramètres ===
 settings = get_settings()
@@ -36,7 +33,7 @@ allow_origins = [
     f"http://127.0.0.1:{port.strip()}" for port in FRONTEND_PORTS.split(",")
 ]
 
-print("CORS allow_origins:", allow_origins)  # DEBUG : à commenter après vérif
+print("CORS allow_origins:", allow_origins)
 
 # === Application FastAPI ===
 app = FastAPI(
@@ -45,22 +42,27 @@ app = FastAPI(
     docs_url="/docs"
 )
 
+# === Rate limiting (Redis) ===
 limiter = Limiter(key_func=get_remote_address, storage_uri="redis://localhost:6379")
 app.state.limiter = limiter
 app.add_exception_handler(429, _rate_limit_exceeded_handler)
 
-# === Middleware compression GZIP ===
-app.add_middleware(
-    TrustedHostMiddleware,
-    allowed_hosts=["cbm.local", HOST, "localhost", "127.0.0.1"]
-)
-
+# === Middleware CORS (doit être en tout premier !) ===
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
-    allow_credentials=False,
+    allow_credentials=True,   # obligatoire si tu envoies cookies / tokens
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# === Middleware compression GZIP ===
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# === Middleware TrustedHost ensuite ===
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["cbm.local", HOST, "localhost", "127.0.0.1"]
 )
 
 # ✅ === Middleware log durée requête + statut ===
@@ -97,6 +99,7 @@ from app.routers import (
     alertes_router, 
     monitoring_router
 )
+
 app.include_router(auth_router)
 app.include_router(alertes_router)
 app.include_router(dashboard_router)
@@ -108,8 +111,6 @@ app.include_router(parametres_router)
 app.include_router(suggestions_router)
 app.include_router(tarifs_router)
 app.include_router(monitoring_router)
-
-
 
 @app.get("/health")
 async def healthcheck():

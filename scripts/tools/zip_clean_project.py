@@ -1,8 +1,8 @@
 import os
 import zipfile
 
-BASE_DIR = r"D:\Projet\CBM_Pricing_dev"
-OUTPUT_ZIP = r"D:\Projet\CBM_Pricing_clean_dev.zip"
+BASE_DIR = r"D:\Projet\CBM_Pricing"
+OUTPUT_ZIP = r"D:\Projet\CBM_Pricing.zip"
 
 EXCLUDE_DIRS = {'.git', 'node_modules', '__pycache__', '.venv', 'venv', '.pytest_cache', '.idea', '.vs', 'dist', 'build'}
 EXCLUDE_EXTS = {'.pyc', '.log', '.vsidx'}

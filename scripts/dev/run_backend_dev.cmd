@@ -1,5 +1,5 @@
 @echo off
-set PROJECT_ROOT=D:\Projet\CBM_Pricing_dev
+set PROJECT_ROOT=D:\Projet\CBM_Pricing
 
 cd /d %PROJECT_ROOT%
 call venv\Scripts\activate
