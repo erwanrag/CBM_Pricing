@@ -24,11 +24,16 @@ CSV_SEPARATOR = ";"
 def generate_csv_from_rows(rows):
     """Génère un CSV avec colonnes dynamiques pour les tarifs"""
     output = StringIO()
-    
+
+    print('log row generate csv :')
+
     if not rows:
-        output.write("cod_pro;refint;nom_pro;qualite;statut;prix_achat;pmp_LM;stock_LM;ca_LM;qte_LM;marge_LM\n")
+        output.write("cod_pro;refint;nom_pro;qualite;statut;prix_achat;pmp_LM;stock_LM;ca_LM;qte_LM;marge_LM;ratio_max_min;\n")
         return output.getvalue()
-    
+
+    # Détecte si au moins une ligne contient plus d’un tarif
+    multi_tarifs = any(len(r.get("tarifs", {})) > 1 for r in rows)
+
     # Trouver toutes les clés de tarifs dynamiques
     tarif_keys = set()
     for row in rows:
@@ -37,19 +42,23 @@ def generate_csv_from_rows(rows):
 
     # En-têtes fixes
     headers = [
-        "cod_pro", "refint", "nom_pro", "qualite", "statut", "prix_achat", 
+        "cod_pro", "refint", "nom_pro", "qualite", "statut", "prix_achat",
         "pmp_LM", "stock_LM", "ca_LM", "qte_LM", "marge_LM"
     ]
-    
-    # En-têtes dynamiques par tarif
+
+    # Ajoute ratio_max_min seulement si plusieurs tarifs
+    if multi_tarifs:
+        headers.append("ratio_max_min")
+
+    # En-têtes dynamiques pour chaque tarif
     for tk in tarif_keys:
         headers.extend([
             f"prix_{tk}", f"marge_{tk}", f"qte_{tk}", f"ca_{tk}", f"marge_realisee_{tk}"
         ])
-    
+
     writer = csv.DictWriter(output, fieldnames=headers, delimiter=CSV_SEPARATOR, extrasaction='ignore')
     writer.writeheader()
-    
+
     for row in rows:
         flat_row = {
             "cod_pro": row.get("cod_pro", ""),
@@ -62,9 +71,13 @@ def generate_csv_from_rows(rows):
             "stock_LM": row.get("stock_LM", ""),
             "ca_LM": row.get("ca_LM", ""),
             "qte_LM": row.get("qte_LM", ""),
-            "marge_LM": row.get("marge_LM", ""),
+            "marge_LM": row.get("marge_LM", "")
         }
-        
+
+        # ratio uniquement si plusieurs tarifs
+        if multi_tarifs:
+            flat_row["ratio_max_min"] = row.get("ratio_max_min", "")
+
         # Ajoute les colonnes dynamiques des tarifs
         for tk in tarif_keys:
             tarif = row.get("tarifs", {}).get(tk, {})
@@ -73,10 +86,11 @@ def generate_csv_from_rows(rows):
             flat_row[f"qte_{tk}"] = tarif.get("qte", "")
             flat_row[f"ca_{tk}"] = tarif.get("ca", "")
             flat_row[f"marge_realisee_{tk}"] = tarif.get("marge_realisee", "")
-        
+
         writer.writerow(flat_row)
-    
+
     return output.getvalue()
+
 
 # ========================================
 # Helper : Génération CSV pour alertes
