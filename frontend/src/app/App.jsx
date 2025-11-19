@@ -7,6 +7,7 @@ import ErrorBoundary from "@/shared/components/error/ErrorBoundary";
 import theme from "@/shared/theme/theme";
 
 function App() {
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
