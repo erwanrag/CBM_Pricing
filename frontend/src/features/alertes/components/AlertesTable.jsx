@@ -21,12 +21,15 @@ const TARIF_COLOR = "#FBBF24";
 // Balise header colorée par bloc
 const headerWithBloc = (label, blocLabel, color) => (
   <Box sx={{
-    display: "flex", flexDirection: "column", alignItems: "center", fontWeight: "bold"
+    display: "flex", justifyItems: "center", alignItems: "center", fontWeight: "bold"
   }}>
     <span>{label}</span>
     <span style={{
       background: color, color: "#fff", fontSize: "0.88em",
-      borderRadius: 5, padding: "0 8px", marginTop: 2, fontWeight: 700, letterSpacing: 1
+      ontWeight: 700, letterSpacing: 1,
+      height: '20px', width: '100%',
+      display: 'flex', justifyContent: 'center', alignItems: "center",
+      position: 'absolute', top: '-15px', left: 0, right: 0
     }}>
       {blocLabel}
     </span>
@@ -83,16 +86,16 @@ export default function AlertesTable({ filters, onInspect, onTotalChange, onDash
     {
       field: "qualite",
       headerName: "Qualité",
-      width: 100,
-      renderCell: ({ value }) => <BadgeQualite qualite={value} />,
+      width: 70,
+      renderCell: ({ value }) => <Box sx={{ width: "100%", height: "100%", display: 'flex', justifyContent: 'center', alignItems: "center"}}><BadgeQualite qualite={value} /></Box>,
     },
     {
       field: "statut",
       headerName: "Statut",
-      width: 90,
-      renderCell: ({ value }) => <StatutBadge value={value} />,
+      width: 70,
+      renderCell: ({ value }) => <Box sx={{ width: "100%", height: "100%", display: 'flex', justifyContent: 'center', alignItems: "center"}}><StatutBadge value={value} /></Box>,
     },
-    { field: "grouping_crn", headerName: "# Groupe Réf. Constructeur", width: 140 },
+    { field: "grouping_crn", headerName: "GRC", width: 100 },
     {
       field: "px_achat", headerName: "Px Achat (€)", width: 100,
       renderCell: ({ value }) => (value != null ? formatPrix(value) : "-")
@@ -237,7 +240,8 @@ export default function AlertesTable({ filters, onInspect, onTotalChange, onDash
               textAlign: "right",
               width: "100%",
               display: "flex", 
-              alignItems: "center"
+              alignItems: "center",
+              width: "100%"
             }}>
               {col.renderCell ? col.renderCell(params) : params.value ?? "-"}
             </Box>

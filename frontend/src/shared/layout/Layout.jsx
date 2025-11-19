@@ -26,15 +26,16 @@ const Layout = () => {
 
   return (
     <SidebarProvider>
-      <a href="#main-content" className="sr-only focus:not-sr-only absolute top-2 left-2 bg-white text-black p-2 z-50">
+      {/* <a href="#main-content" className="sr-only focus:not-sr-only absolute top-2 left-2 bg-white text-black p-2 z-50">
         Aller au contenu principal
-      </a>
+      </a> */}
       <LayoutContext.Provider value={{ filters, setFilters, filterType, setFilterType }}>
-        <Box sx={{ display: "flex", height: "100vh", bgcolor: "background.default" }}>
-          <Box component="nav" aria-label="Navigation principale">
+        <Box key={"App Container"} sx={{ display: "flex", height: "100vh", bgcolor: "background.default" }}>
+          <Box key={"Sidebar Container"} component="nav" aria-label="Navigation principale">
             <Sidebar />
           </Box>
           <Box
+            key={"Content Container"}
             component="main"
             role="main"
             id="main-content"

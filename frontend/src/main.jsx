@@ -8,12 +8,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const queryClient = new QueryClient();
 const App = lazy(() => import("@/app/App"));
 
+
 ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <Suspense fallback={<div className="text-center p-4">Chargement…</div>}>
-        <App />
-      </Suspense>
-    </QueryClientProvider>
-  </React.StrictMode>,
+  <QueryClientProvider client={queryClient}>
+    <Suspense fallback={<div className="text-center p-4">Chargement…</div>}>
+      <App />
+    </Suspense>
+  </QueryClientProvider>
 );

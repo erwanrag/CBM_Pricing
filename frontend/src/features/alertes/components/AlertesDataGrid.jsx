@@ -178,10 +178,21 @@ export default function AlertesDataGrid({
             },
             "& .MuiDataGrid-cell": {
               borderColor: "#f0f0f0",
+              padding: "0px",
+              display: 'flex',
+              justifyContent: 'center',
+              alignContent: 'center'
             },
             "& .MuiDataGrid-columnHeaders": {
               backgroundColor: "#fafafa",
               borderBottom: "2px solid #e0e0e0",
+              paddingTop: "15px"
+            },
+            "& .MuiDataGrid-columnHeaderTitleContainer": {
+              display: 'flex',
+              justifyContent: 'center',
+              alignContent: 'center',
+              flexWrap: "nowrap"
             },
           }}
         />

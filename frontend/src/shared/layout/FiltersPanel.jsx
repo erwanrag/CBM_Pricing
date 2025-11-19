@@ -229,14 +229,16 @@ const FiltersPanel = () => {
           {/* Si grouping activé, pas de ref_crn */}
           {!localFilters.use_grouping && (
             localFilters.cod_pro ? (
-              <AutocompleteRefCrnFromCodpro
-                fullWidth
-                key={`from-codpro-${localFilters.cod_pro}-${resetCount}`}
-                cod_pro={localFilters.cod_pro}
-                value={localFilters.ref_crn}
-                onChange={(ref_crn) => setLocalFilters((f) => ({ ...f, ref_crn }))}
-                disabled={isSubmitting}
-              />
+              <>
+                <AutocompleteRefCrnFromCodpro
+                  fullWidth
+                  key={`from-codpro-${localFilters.cod_pro}-${resetCount}`}
+                  cod_pro={localFilters.cod_pro}
+                  value={localFilters.ref_crn}
+                  onChange={(ref_crn) => setLocalFilters((f) => ({ ...f, ref_crn }))}
+                  disabled={isSubmitting}
+                />
+              </>
             ) : (
               <AutocompleteRefCrn
                 fullWidth
